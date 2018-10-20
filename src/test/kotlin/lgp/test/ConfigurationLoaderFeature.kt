@@ -1,5 +1,7 @@
 package lgp.test
 
+import com.google.gson.JsonSyntaxException
+import lgp.core.environment.ComponentLoadException
 import lgp.core.environment.config.Configuration
 import lgp.core.environment.config.JsonConfigurationLoader
 import org.spekframework.spek2.Spek
@@ -7,6 +9,8 @@ import org.spekframework.spek2.style.gherkin.Feature
 
 object ConfigurationLoaderFeature : Spek({
     val testConfigurationFilePath = this.javaClass.classLoader.getResource("test-configuration.json").file
+    val testConfigurationInvalidFilePath = this.javaClass.classLoader.getResource("test-configuration-invalid.json").file
+
     val expectedConfiguration = Configuration().apply {
         initialMinimumProgramLength = 20
         initialMaximumProgramLength = 40
@@ -34,12 +38,74 @@ object ConfigurationLoaderFeature : Spek({
     }
 
     Feature("JsonConfigurationLoader") {
-        Scenario("load configuration") {
+        Scenario("Load configuration from valid file") {
             lateinit var configurationLoader: JsonConfigurationLoader
             var configuration: Configuration? = null
 
             Given("A JsonConfigurationLoader for the file test-configuration.json") {
                 configurationLoader = JsonConfigurationLoader(testConfigurationFilePath)
+            }
+
+            When("The configuration is loaded") {
+                configuration = configurationLoader.load()
+            }
+
+            Then("The configuration should be loaded successfully") {
+                assert(configuration != null) { "Configuration is null" }
+            }
+
+            And("The configuration is valid") {
+                val validity = configuration!!.isValid()
+
+                assert(validity.isValid) { "Configuration is not valid" }
+            }
+
+            And("The configuration is loaded correctly") {
+                assert(configuration == expectedConfiguration) { "Configuration loaded does not match expected"}
+            }
+        }
+
+        Scenario("Load configuration from invalid file") {
+            lateinit var configurationLoader: JsonConfigurationLoader
+            var configuration: Configuration? = null
+            var exception: Exception? = null
+
+            Given("A JsonConfigurationLoader for the file test-configuration-invalid.json") {
+                configurationLoader = JsonConfigurationLoader(testConfigurationInvalidFilePath)
+            }
+
+            When("The configuration is loaded") {
+                try {
+                    configuration = configurationLoader.load()
+                } catch (ex: Exception) {
+                    exception = ex
+                }
+            }
+
+            Then("The configuration should not be loaded successfully") {
+                assert(configuration == null) { "Configuration is not null" }
+                assert(exception != null) { "Exception is null"}
+                assert(exception is ComponentLoadException) { "Exception is not of correct type" }
+                assert(exception!!.cause is JsonSyntaxException) { "Inner exception is not of correct type "}
+            }
+        }
+
+        Scenario("Load configuration from valid file using builder") {
+            lateinit var configurationLoaderBuilder: JsonConfigurationLoader.Builder
+            lateinit var configurationLoader: JsonConfigurationLoader
+            var configuration: Configuration? = null
+
+            Given("A JsonConfigurationLoader.Builder for the file test-configuration.json") {
+                configurationLoaderBuilder = JsonConfigurationLoader
+                    .Builder()
+                    .filename(testConfigurationFilePath)
+
+                assert(configurationLoaderBuilder.filename == testConfigurationFilePath)
+            }
+
+            And("The JsonConfigurationLoader is built") {
+                // The compiler guarantees that configurationLoader is not null.
+                configurationLoader = configurationLoaderBuilder.build()
             }
 
             When("The configuration is loaded") {

@@ -1,5 +1,6 @@
 package lgp.core.environment.operations
 
+import lgp.core.environment.ComponentLoadException
 import lgp.core.environment.ComponentLoaderBuilder
 import lgp.core.program.instructions.Operation
 import lgp.core.modules.Module
@@ -16,6 +17,12 @@ class InvalidOperationSpecificationException(message: String) : Exception(messag
 class DefaultOperationLoader<T> constructor(val operationNames: List<String>) : OperationLoader<T> {
 
     private constructor(builder: Builder<T>) : this(builder.operationNames)
+
+    private val memoizedOperations by lazy {
+        this.operationNames.map { name ->
+            this.loadOperation(name)
+        }
+    }
 
     /**
      * Builds an instance of [DefaultOperationLoader].
@@ -56,29 +63,37 @@ class DefaultOperationLoader<T> constructor(val operationNames: List<String>) : 
      * @returns A list of [Operation]s.
      */
     override fun load(): List<Operation<T>> {
-        return this.operationNames.map { name ->
-            this.loadOperation(name)
+        try {
+            return memoizedOperations
+        } catch (ex: Exception) {
+            throw ComponentLoadException("Unable to load operations from the list specified.", ex)
         }
     }
 
     private fun loadOperation(name: String): Operation<T> {
         // Load the class as a raw class (i.e. Class<*>).
-        val clazz = this.javaClass.classLoader.loadClass(name)
+        try {
+            val clazz = this.javaClass.classLoader.loadClass(name)
 
-        // Try to create an instance: If we're loading an implementation of
-        // `Operation<T>` then we should be able to safely cast it to the base
-        // `Module` type.
-        val instance = clazz.newInstance() as? Module
+            // Try to create an instance: If we're loading an implementation of
+            // `Operation<T>` then we should be able to safely cast it to the base `Module` type.
+            val instance = clazz.newInstance() as? Module
                 ?: throw InvalidOperationSpecificationException("$name is not a valid Module.")
 
-        // By this time we know that our instance is at least a `Module` impl., so we can try
-        // cast it to `Operation<T>`. It is possible that the cast will fail, such as when
-        // a `Module` impl is given that is not an operation (e.g. a `ComponentLoader`).
-        @Suppress("UNCHECKED_CAST")
-        val operation = instance as? Operation<T>
+            // By this time we know that our instance is at least a `Module` impl., so we can try
+            // cast it to `Operation<T>`. It is possible that the cast will fail, such as when
+            // a `Module` impl is given that is not an operation (e.g. a `ComponentLoader`).
+            @Suppress("UNCHECKED_CAST")
+            val operation = instance as? Operation<T>
                 ?: throw InvalidOperationSpecificationException("$name is not a valid Operation.")
 
-        return operation
+            return operation
+        } catch (ex: ClassNotFoundException) {
+            // The class specified probably doesn't exist. Wrap this error up nicely.
+            throw InvalidOperationSpecificationException(
+                "The class $name could not be found."
+            )
+        }
     }
 
     override val information = ModuleInformation(

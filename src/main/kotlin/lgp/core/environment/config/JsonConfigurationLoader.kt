@@ -3,6 +3,7 @@ package lgp.core.environment.config
 import com.google.gson.Gson
 import com.google.gson.JsonIOException
 import com.google.gson.JsonSyntaxException
+import lgp.core.environment.ComponentLoadException
 import lgp.core.environment.ComponentLoaderBuilder
 import lgp.core.modules.ModuleInformation
 import java.io.FileReader
@@ -54,7 +55,7 @@ class JsonConfigurationLoader constructor(private val filename: String) : Config
         /**
          * The filename of a JSON file.
          */
-        lateinit var filename: String
+        internal lateinit var filename: String
 
         /**
          * Sets the filename of the JSON file to load configuration from.
@@ -91,15 +92,7 @@ class JsonConfigurationLoader constructor(private val filename: String) : Config
         try {
             return this.memoizedConfig
         } catch (ex: Exception) {
-            when (ex) {
-                is JsonSyntaxException, is JsonIOException -> {
-                    // We want to wrap these in our custom exception for a nicer API
-                    throw ConfigurationLoadException("Unable to load configuration from the JSON file specified.", ex)
-                }
-                else -> {
-                    throw ex
-                }
-            }
+            throw ComponentLoadException("Unable to load configuration from the JSON file specified.", ex)
         }
     }
 

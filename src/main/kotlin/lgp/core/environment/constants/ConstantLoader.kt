@@ -15,3 +15,5 @@ import lgp.core.environment.ComponentLoader
  * @param T The type of the constants.
  */
 interface ConstantLoader<out T> : ComponentLoader<List<T>>
+
+class ConstantLoad

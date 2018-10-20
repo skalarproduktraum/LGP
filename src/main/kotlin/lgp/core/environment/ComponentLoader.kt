@@ -31,3 +31,27 @@ interface ComponentLoader<out TComponent> : Module {
      */
     fun load(): TComponent
 }
+
+/**
+ * TODO: Figure out a way to make this work for sub-classes.
+ *
+ * @suppress
+ */
+private abstract class CachedComponentLoader<out TComponent>(delegate: () -> TComponent) : ComponentLoader<TComponent> {
+
+    private val cachedComponents by lazy {
+        delegate()
+    }
+
+    override fun load(): TComponent {
+        return cachedComponents
+    }
+}
+
+/**
+ * An exception given when a call to [ComponentLoader.load] fails for some implementation-specific reason.
+ *
+ * @param message A message for the exception.
+ * @param exception An optional inner exception to provide more detail.
+ */
+class ComponentLoadException(message: String, exception: Exception?) : Exception(message, exception)

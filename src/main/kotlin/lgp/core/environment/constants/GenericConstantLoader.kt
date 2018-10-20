@@ -1,5 +1,6 @@
 package lgp.core.environment.constants
 
+import lgp.core.environment.ComponentLoadException
 import lgp.core.environment.ComponentLoaderBuilder
 import lgp.core.modules.ModuleInformation
 
@@ -88,7 +89,11 @@ open class GenericConstantLoader<out T> constructor(private val constants: List<
      * @return A collection of constants parsed to the correct type.
      */
     override fun load(): List<T> {
-        return this.memoizedConstants
+        try {
+            return this.memoizedConstants
+        } catch (ex: Exception) {
+            throw ComponentLoadException("Unable to load constants from the list specified.", ex)
+        }
     }
 
     override val information = ModuleInformation(

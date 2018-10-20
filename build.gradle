@@ -71,12 +71,6 @@ dependencies {
     testRuntimeOnly "org.jetbrains.kotlin:kotlin-reflect:$kotlin_version"
 }
 
-kotlin {
-    experimental {
-        coroutines "enable"
-    }
-}
-
 tasks.withType(JavaCompile) {
     options.compilerArgs << "-Xlint:unchecked"      \
                          << "-Xlint:all"            \
