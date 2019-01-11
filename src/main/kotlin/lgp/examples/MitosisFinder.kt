@@ -19,10 +19,10 @@ import lgp.core.program.Outputs
 import lgp.lib.*
 import net.imglib2.RandomAccessibleInterval
 import net.imglib2.img.cell.CellImgFactory
+import net.imglib2.type.numeric.integer.UnsignedByteType
 import net.imglib2.type.numeric.real.FloatType
-import net.imglib2.view.IterableRandomAccessibleInterval
 import net.imglib2.view.Views
-import java.lang.RuntimeException
+import java.io.File
 
 /*
  * An example of setting up an environment to use LGP to find programs for the function `x^2 + 2x + 2`.
@@ -33,13 +33,13 @@ import java.lang.RuntimeException
 
 // A solution for this problem consists of the problem's name and a result from
 // running the problem with a `Trainer` impl.
-data class SpotFinderSolution(
+data class MitosisSolution(
     override val problem: String,
     val result: TrainingResult<RandomAccessibleInterval<*>, Outputs.Single<RandomAccessibleInterval<*>>>
 ) : Solution<RandomAccessibleInterval<*>>
 
 // Define the problem and the necessary components to solve it.
-class SpotFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<RandomAccessibleInterval<*>>>() {
+class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<RandomAccessibleInterval<*>>>() {
     override val name = "Simple Quadratic."
 
     override val description = Description("f(x) = x^2 + 2x + 2\n\trange = [-10:10:0.5]")
@@ -80,7 +80,7 @@ class SpotFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<Ran
         parseFunction = { s ->
             val f = CellImgFactory(FloatType(), 2)
             val img = f.create(512, 512)
-            val rai = Views.interval(img, longArrayOf(0, 0), longArrayOf(512, 512))
+            val rai = Views.interval(img, longArrayOf(0, 0), longArrayOf(511, 511))
             val cursor = rai.cursor()
             while(cursor.hasNext()) {
                 cursor.fwd()
@@ -91,20 +91,52 @@ class SpotFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<Ran
         }
     )
 
-    val inputFiles = arrayListOf<String>()
-    val outputFiles = arrayListOf<String>()
+    val inputFiles = (1..9).map { "A00_v2/A00_${String.format("%02d", it)}"}
+        .mapNotNull {
+            val f = File("$it.bmp")
+            if(f.exists()) {
+                it
+            } else {
+                null
+            }
+        }
 
     val datasetLoader = object : DatasetLoader<RandomAccessibleInterval<*>> {
         override val information = ModuleInformation("Generates samples in the range [-10:10:0.5].")
 
         override fun load(): Dataset<RandomAccessibleInterval<*>> {
             val inputs = inputFiles.map { filename ->
-                val img = IO.openImgs(filename).get(0)
+                println("Loading input file $filename.bmp")
+                val img = IO.openImgs("$filename.bmp")[0]
                 Sample(listOf(Feature(name = "image", value = img as RandomAccessibleInterval<*>)))
             }
 
-            val outputs = outputFiles.map { filename ->
-                val img = IO.openImgs(filename).get(0)
+            val outputs = inputFiles.mapIndexed { i, filename ->
+                val factory = CellImgFactory(FloatType(), 2)
+                val width = inputs[i].features.first().value.dimension(0)
+                val height = inputs[i].features.first().value.dimension(1)
+                val img = factory.create(width, height)
+                val randomAccess = img.randomAccess()
+
+                println("Created target image with ${width}x$height")
+
+                // convert the positions from the CSV file into a binary image
+                val stream = File("$filename.csv").inputStream()
+                stream.bufferedReader().useLines { lines ->
+                    lines.forEach { line ->
+                        line.split(",")
+                            .map { it.toInt() }
+                            .withIndex()
+                            .groupBy { it.index / 2 }
+                            .map { it.value.map { i -> i.value } }
+                            .forEach {
+                                randomAccess.setPosition(it[0], 0)
+                                randomAccess.setPosition(it[1], 1)
+                                randomAccess.get().set(1.0f)
+                            }
+                    }
+                }
+
                 Targets.Single(img as RandomAccessibleInterval<*>)
             }
 
@@ -148,19 +180,15 @@ class SpotFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<Ran
                     val raiExpected = (case.target as Targets.Single).value
                     val raiActual = actual.value
 
-                    if(raiExpected !is IterableRandomAccessibleInterval || raiActual !is IterableRandomAccessibleInterval) {
-                        throw RuntimeException("One of the RAIs is not iterable")
-                    }
-
-                    val cursorExpected = raiExpected.cursor()
-                    val cursorActual = raiActual.cursor()
+                    val cursorExpected = Views.iterable(raiExpected).cursor()
+                    val cursorActual = Views.iterable(raiActual).cursor()
 
                     var difference = 0.0f
                     while(cursorActual.hasNext() && cursorExpected.hasNext()) {
                         cursorActual.fwd()
                         cursorExpected.fwd()
 
-                        difference = (cursorActual.get() as Float) - (cursorExpected.get() as Float)
+                        difference = (cursorActual.get() as UnsignedByteType).get().toFloat() - (cursorExpected.get() as FloatType).get()
                     }
 
                     difference
@@ -241,7 +269,7 @@ class SpotFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<Ran
         this.model = Models.SteadyState(this.environment)
     }
 
-    override fun solve(): SpotFinderSolution {
+    override fun solve(): MitosisSolution {
         try {
             /*
             // This is an example of training sequentially in an asynchronous manner.
@@ -264,14 +292,14 @@ class SpotFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<Ran
 
             return runBlocking {
                 val job = runner.trainAsync(
-                    this@SpotFinderProblem.datasetLoader.load()
+                    this@MitosisFinderProblem.datasetLoader.load()
                 )
 
                 job.subscribeToUpdates { println("training progress = ${it.progress}") }
 
                 val result = job.result()
 
-                SpotFinderSolution(this@SpotFinderProblem.name, result)
+                MitosisSolution(this@MitosisFinderProblem.name, result)
             }
 
         } catch (ex: UninitializedPropertyAccessException) {
@@ -283,11 +311,11 @@ class SpotFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<Ran
     }
 }
 
-class SpotFinder {
+class MitosisFinder {
     companion object Main {
         @JvmStatic fun main(args: Array<String>) {
             // Create a new problem instance, initialise it, and then solve it.
-            val problem = SpotFinderProblem()
+            val problem = MitosisFinderProblem()
             problem.initialiseEnvironment()
             problem.initialiseModel()
             val solution = problem.solve()
