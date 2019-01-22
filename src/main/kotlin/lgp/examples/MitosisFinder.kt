@@ -192,23 +192,28 @@ class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<
         val ff: SingleOutputFitnessFunction<RandomAccessibleInterval<*>> = object : SingleOutputFitnessFunction<RandomAccessibleInterval<*>>() {
 
             override fun fitness(outputs: List<Outputs.Single<RandomAccessibleInterval<*>>>, cases: List<FitnessCase<RandomAccessibleInterval<*>>>): Double {
-                val fitness = cases.zip(outputs).map { (case, actual) ->
-                    val raiExpected = (case.target as Targets.Single).value
-                    val raiActual = actual.value
+                val fitness = try {
+                    cases.zip(outputs).map { (case, actual) ->
+                        val raiExpected = (case.target as Targets.Single).value
+                        val raiActual = actual.value
 
-                    val cursorExpected = Views.iterable(raiExpected).cursor()
-                    val cursorActual = Views.iterable(raiActual).cursor()
+                        val cursorExpected = Views.iterable(raiExpected).cursor()
+                        val cursorActual = Views.iterable(raiActual).cursor()
 
-                    var difference = 0.0f
-                    while(cursorActual.hasNext() && cursorExpected.hasNext()) {
-                        cursorActual.fwd()
-                        cursorExpected.fwd()
+                        var difference = 0.0f
+                        while (cursorActual.hasNext() && cursorExpected.hasNext()) {
+                            cursorActual.fwd()
+                            cursorExpected.fwd()
 
-                        difference = (cursorActual.get() as FloatType).get() - (cursorExpected.get() as FloatType).get()
-                    }
+                            difference = (cursorActual.get() as FloatType).get() -
+                                    (cursorExpected.get() as FloatType).get()
+                        }
 
-                    difference
-                }.sum()
+                        difference
+                    }.sum()
+                } catch (e: Exception) {
+                    Float.NEGATIVE_INFINITY
+                }
 
                 println("Fitness = $fitness")
                 return when {
@@ -305,7 +310,7 @@ class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<
             }
             */
 
-            val runner = DistributedTrainer(environment, model, runs = 2)
+            val runner = DistributedTrainer(environment, model, runs = 8)
 
             return runBlocking {
                 val job = runner.trainAsync(

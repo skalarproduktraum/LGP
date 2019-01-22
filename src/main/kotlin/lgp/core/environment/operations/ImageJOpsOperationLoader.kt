@@ -11,6 +11,7 @@ import net.imglib2.Localizable
 import net.imglib2.Point
 import net.imglib2.algorithm.neighborhood.HyperSphereShape
 import net.imglib2.algorithm.neighborhood.Shape
+import net.imglib2.img.cell.CellImgFactory
 import net.imglib2.type.numeric.NumericType
 import net.imglib2.type.numeric.real.FloatType
 import org.scijava.Context
@@ -26,7 +27,15 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
         arguments.add(args.get(0)!!)
         arguments.addAll(parameters)
 
-        ops.run(opInfo.name, *(arguments.toTypedArray())) as T
+        try {
+            ops.run(opInfo.name, *(arguments.toTypedArray())) as T
+        } catch (e: Exception) {
+            System.err.println("Execution of ${opInfo.name} failed, returning empty image.")
+            val f = CellImgFactory(FloatType(), 2)
+            val img = f.create(2048, 2048)
+
+            img as T
+        }
     }) {
         /**
          * A way to express an operation in a textual format.
@@ -69,7 +78,15 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
         arguments.add(args.get(1)!!)
         arguments.addAll(parameters)
 
-        ops.run(opInfo.name, *(arguments.toTypedArray())) as T
+        try {
+            ops.run(opInfo.name, *(arguments.toTypedArray())) as T
+        } catch (e: Exception) {
+            System.err.println("Execution of ${opInfo.name} failed, returning empty image.")
+            val f = CellImgFactory(FloatType(), 2)
+            val img = f.create(2048, 2048)
+
+            img as T
+        }
     }
     ) {
         override val representation: String
