@@ -19,7 +19,6 @@ import lgp.core.program.Outputs
 import lgp.lib.*
 import net.imglib2.RandomAccessibleInterval
 import net.imglib2.img.cell.CellImgFactory
-import net.imglib2.type.numeric.integer.UnsignedByteType
 import net.imglib2.type.numeric.real.FloatType
 import net.imglib2.view.Views
 import java.io.File
@@ -105,10 +104,13 @@ class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<
         override val information = ModuleInformation("Generates samples in the range [-10:10:0.5].")
 
         override fun load(): Dataset<RandomAccessibleInterval<*>> {
+            val opService = ImageJOpsOperationLoader.ops
+
             val inputs = inputFiles.map { filename ->
                 println("Loading input file $filename.bmp")
                 val img = IO.openImgs("$filename.bmp")[0]
-                Sample(listOf(Feature(name = "image", value = img as RandomAccessibleInterval<*>)))
+                val floatImg = opService.run("convert.float32", img)
+                Sample(listOf(Feature(name = "image", value = floatImg as RandomAccessibleInterval<*>)))
             }
 
             val outputs = inputFiles.mapIndexed { i, filename ->
@@ -117,8 +119,6 @@ class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<
                 val height = inputs[i].features.first().value.dimension(1)
                 val img = factory.create(width, height)
                 val randomAccess = img.randomAccess()
-
-                println("Created target image with ${width}x$height")
 
                 // convert the positions from the CSV file into a binary image
                 val stream = File("$filename.csv").inputStream()
@@ -137,7 +137,8 @@ class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<
                     }
                 }
 
-                Targets.Single(img as RandomAccessibleInterval<*>)
+                val floatImg = opService.run("convert.float32", img)
+                Targets.Single(floatImg as RandomAccessibleInterval<*>)
             }
 
             return Dataset(
@@ -188,7 +189,7 @@ class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<
                         cursorActual.fwd()
                         cursorExpected.fwd()
 
-                        difference = (cursorActual.get() as UnsignedByteType).get().toFloat() - (cursorExpected.get() as FloatType).get()
+                        difference = (cursorActual.get() as FloatType).get() - (cursorExpected.get() as FloatType).get()
                     }
 
                     difference
