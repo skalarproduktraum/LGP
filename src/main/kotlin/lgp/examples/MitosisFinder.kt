@@ -49,10 +49,10 @@ class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<
         override fun load(): Configuration {
             val config = Configuration()
 
-            config.initialMinimumProgramLength = 10
-            config.initialMaximumProgramLength = 30
-            config.minimumProgramLength = 10
-            config.maximumProgramLength = 200
+            config.initialMinimumProgramLength = 5
+            config.initialMaximumProgramLength = 10
+            config.minimumProgramLength = 5
+            config.maximumProgramLength = 20
             config.operations = listOf(
                 "lgp.lib.operations.Addition",
                 "lgp.lib.operations.Subtraction",
@@ -74,12 +74,14 @@ class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<
 
     private val config = this.configLoader.load()
 
+    val defaultSize = 2048L
+
     override val constantLoader = GenericConstantLoader(
         constants = config.constants,
         parseFunction = { s ->
             val f = CellImgFactory(FloatType(), 2)
-            val img = f.create(512, 512)
-            val rai = Views.interval(img, longArrayOf(0, 0), longArrayOf(511, 511))
+            val img = f.create(defaultSize, defaultSize)
+            val rai = Views.interval(img, longArrayOf(0, 0), longArrayOf(defaultSize - 1, defaultSize - 1))
             val cursor = rai.cursor()
             while(cursor.hasNext()) {
                 cursor.fwd()
@@ -105,16 +107,29 @@ class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<
 
         override fun load(): Dataset<RandomAccessibleInterval<*>> {
             val opService = ImageJOpsOperationLoader.ops
+            val factory = CellImgFactory(FloatType(), 2)
 
             val inputs = inputFiles.map { filename ->
                 println("Loading input file $filename.bmp")
                 val img = IO.openImgs("$filename.bmp")[0]
-                val floatImg = opService.run("convert.float32", img)
-                Sample(listOf(Feature(name = "image", value = floatImg as RandomAccessibleInterval<*>)))
+                val floatImg = opService.run("convert.float32", img) as RandomAccessibleInterval<*>
+                val floatImgCursor = Views.interval(floatImg,
+                    longArrayOf(0L, 0L, 0L),
+                    longArrayOf(floatImg.dimension(0) - 1, floatImg.dimension(1) - 1, 0L)).cursor()
+
+                val final = factory.create(floatImg.dimension(0), floatImg.dimension(1))
+                val finalCursor = final.cursor()
+
+                while(floatImgCursor.hasNext()) {
+                    floatImgCursor.fwd()
+                    finalCursor.fwd()
+                    finalCursor.get().set(floatImgCursor.get() as FloatType)
+                }
+
+                Sample(listOf(Feature(name = "image", value = final)))
             }
 
             val outputs = inputFiles.mapIndexed { i, filename ->
-                val factory = CellImgFactory(FloatType(), 2)
                 val width = inputs[i].features.first().value.dimension(0)
                 val height = inputs[i].features.first().value.dimension(1)
                 val img = factory.create(width, height)
@@ -157,13 +172,13 @@ class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<
 
     init {
         val factory = CellImgFactory(FloatType(), 2)
-        val img = factory.create(512, 512)
+        val img = factory.create(defaultSize, defaultSize)
 
-        defaultImage = Views.interval(img, longArrayOf(0, 0), longArrayOf(512, 512))
+        defaultImage = Views.interval(img, longArrayOf(0, 0), longArrayOf(defaultSize, defaultSize))
 
-        val whiteImg = factory.create(512, 512)
+        val whiteImg = factory.create(defaultSize, defaultSize)
 
-        whiteImage = Views.interval(whiteImg, longArrayOf(0, 0), longArrayOf(512, 512))
+        whiteImage = Views.interval(whiteImg, longArrayOf(0, 0), longArrayOf(defaultSize, defaultSize))
         val cursor = whiteImg.cursor()
         while(cursor.hasNext()) {
             cursor.fwd()
@@ -195,6 +210,7 @@ class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<
                     difference
                 }.sum()
 
+                println("Fitness = $fitness")
                 return when {
                     fitness.isFinite() -> ((1.0 / cases.size.toDouble()) * fitness)
                     else               -> FitnessFunctions.UNDEFINED_FITNESS

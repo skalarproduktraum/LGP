@@ -1,0 +1,15 @@
+math.add
+math.and
+math.divide
+math.exp
+math.expMinusOne
+math.log
+math.log10
+math.log2
+math.logOnePlusX
+math.multiply
+math.or
+math.power
+filter.derivativeGauss
+filter.correlate
+filter.convolve

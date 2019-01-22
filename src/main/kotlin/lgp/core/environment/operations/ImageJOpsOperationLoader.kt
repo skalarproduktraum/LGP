@@ -7,11 +7,8 @@ import lgp.lib.operations.toBoolean
 import net.imagej.ImageJService
 import net.imagej.ops.OpInfo
 import net.imagej.ops.OpService
-import net.imagej.ops.OpUtils
 import net.imglib2.Localizable
 import net.imglib2.Point
-import net.imglib2.RealLocalizable
-import net.imglib2.algorithm.neighborhood.HyperSphereNeighborhood
 import net.imglib2.algorithm.neighborhood.HyperSphereShape
 import net.imglib2.algorithm.neighborhood.Shape
 import net.imglib2.type.numeric.NumericType
@@ -20,13 +17,11 @@ import org.scijava.Context
 import org.scijava.service.SciJavaService
 import org.scijava.thread.ThreadService
 import java.io.File
-import java.nio.file.Files
-import java.nio.file.Paths
 
 class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<String> = emptyList()) : OperationLoader<T> {
 
     class UnaryOpsOperation<T>(val opInfo: OpInfo, val parameters: List<Any> = emptyList()) : UnaryOperation<T>({ args: Arguments<T> ->
-        println("Running unary op ${opInfo.name} (${opInfo.inputs().joinToString { it.type.simpleName }} -> ${opInfo.outputs().joinToString { it.type.simpleName }}), parameters: ${parameters.joinToString(",")}")
+        println("${Thread.currentThread().id}: Running unary op ${opInfo.name} (${opInfo.inputs().joinToString { it.type.simpleName }} -> ${opInfo.outputs().joinToString { it.type.simpleName }}), parameters: ${parameters.joinToString(",")}")
         val arguments = mutableListOf<Any>()
         arguments.add(args.get(0)!!)
         arguments.addAll(parameters)
@@ -68,7 +63,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
 //        val output = args.get(0)
 //        val op = ops.module(opInfo.name, args.get(0), args.get(1))
 //        op.run()
-        println("Running binary op ${opInfo.name} (${opInfo.inputs().joinToString { it.type.simpleName }} -> ${opInfo.outputs().joinToString { it.type.simpleName }}), parameters: ${parameters.joinToString(",")}")
+        println("${Thread.currentThread().id}: Running binary op ${opInfo.name} (${opInfo.inputs().joinToString { it.type.simpleName }} -> ${opInfo.outputs().joinToString { it.type.simpleName }}), parameters: ${parameters.joinToString(",")}")
         val arguments = mutableListOf<Any>()
         arguments.add(args.get(0)!!)
         arguments.add(args.get(1)!!)
@@ -97,9 +92,11 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
     override fun load(): List<Operation<T>> {
         // TODO: Type filter does not work
 
-        val opsFilterFile = File("allowedOps.txt")
-        val allowedOps = opsFilterFile.readLines().toMutableList().filter{ !it.startsWith("filter.") }
-        println("Got ${allowedOps} allowed ops from allowedOps.txt")
+        val opsFilterFile = File("minimalOps.txt")
+        val allowedOps = opsFilterFile.readLines()
+        println("Got ${allowedOps.size} allowed ops from ${opsFilterFile.name}")
+        val opsBinaryFilterFile = File("allowedBinaryOps.txt")
+        val allowedBinaryOps = opsBinaryFilterFile.readLines()
 
         val allOps = ops.infos().filter { it.name in allowedOps }
 //        allOps.forEach { op ->
@@ -111,12 +108,16 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
 //        }
 
         val unaryOps = allOps.filter {
+            !allowedBinaryOps.contains(it.name) &&
             it.inputs().size >= 1
 //                    && it.inputs()[0].type.isAssignableFrom(typeFilter)
                     && it.outputs().size == 1
                     && it.outputs()[0].type.isAssignableFrom(typeFilter)
-                    && !it.inputs().drop(1).any { op -> op.type.isAssignableFrom(typeFilter) }
+//                    && !it.inputs().drop(1).any { op -> op.type.isAssignableFrom(typeFilter) }
+                    && !it.inputs().any { i -> i.type.simpleName.contains("UnaryComputerOp") || i.type.simpleName.contains("UnaryFunctionOp") }
         }.map {
+            println("UnaryOp ${it.name} has output type ${it.outputs()[0].type}/${it.outputs()[0].genericType}")
+            println("i0: ${it.inputs()[0]?.ioType} i1: ${it.inputs().getOrNull(1)?.ioType}")
             val parameters = it.inputs().drop(1).mapNotNull { o ->
                 println("Requires parameter of ${o.type}")
                 when(o.type) {
@@ -129,15 +130,16 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
                     Byte::class.java -> (Math.random() * 255).toByte()
                     NumericType::class.java -> FloatType(Math.random().toFloat())
                     Localizable::class.java -> Point((Math.random() * 2048).toInt(), (Math.random() * 2048).toInt())
+                    DoubleArray::class.java -> doubleArrayOf(Math.random(), Math.random())
                     else -> null
                 }
             }
 
-            println("UnaryOp ${it.name} has output type ${it.outputs()[0].type}/${it.outputs()[0].genericType}")
             UnaryOpsOperation<T>(it, parameters)
         }
 
         val binaryOps = allOps.filter {
+            allowedBinaryOps.contains(it.name) &&
             it.inputs().size >= 2
 //                    && it.inputs()[0].type.isAssignableFrom(typeFilter)
 //                    && it.inputs()[1].type.isAssignableFrom(typeFilter)
@@ -147,8 +149,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
         }.map {
             println("BinaryOp ${it.name} has output type ${it.outputs()[0].type}/${it.outputs()[0].genericType}")
             val parameters = it.inputs().drop(2).mapNotNull { o ->
-                println("Requires parameter of ${o.type}")
-                when(o.type) {
+                val t = when(o.type) {
                     Shape::class.java -> HyperSphereShape((Math.random()*10.0f).toLong())
                     Boolean::class.java -> Math.random().toBoolean()
                     Double::class.java -> Math.random()
@@ -158,8 +159,11 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
                     Byte::class.java -> (Math.random() * 255).toByte()
                     NumericType::class.java -> FloatType(Math.random().toFloat())
                     Localizable::class.java -> Point((Math.random() * 2048).toInt(), (Math.random() * 2048).toInt())
+                    DoubleArray::class.java -> doubleArrayOf(Math.random(), Math.random())
                     else -> null
                 }
+                println("Requires parameter of ${o.type} -> $t")
+                t
             }
 
             BinaryOpsOperation<T>(it, parameters)
