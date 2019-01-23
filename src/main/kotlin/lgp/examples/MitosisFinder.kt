@@ -17,6 +17,7 @@ import lgp.core.evolution.training.TrainingResult
 import lgp.core.modules.ModuleInformation
 import lgp.core.program.Outputs
 import lgp.lib.*
+import net.imglib2.IterableInterval
 import net.imglib2.RandomAccessibleInterval
 import net.imglib2.img.cell.CellImgFactory
 import net.imglib2.type.numeric.real.FloatType
@@ -34,11 +35,11 @@ import java.io.File
 // running the problem with a `Trainer` impl.
 data class MitosisSolution(
     override val problem: String,
-    val result: TrainingResult<RandomAccessibleInterval<*>, Outputs.Single<RandomAccessibleInterval<*>>>
-) : Solution<RandomAccessibleInterval<*>>
+    val result: TrainingResult<IterableInterval<*>, Outputs.Single<IterableInterval<*>>>
+) : Solution<IterableInterval<*>>
 
 // Define the problem and the necessary components to solve it.
-class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<RandomAccessibleInterval<*>>>() {
+class MitosisFinderProblem: Problem<IterableInterval<*>, Outputs.Single<IterableInterval<*>>>() {
     override val name = "Simple Quadratic."
 
     override val description = Description("f(x) = x^2 + 2x + 2\n\trange = [-10:10:0.5]")
@@ -88,7 +89,7 @@ class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<
                 cursor.get().set(s.toFloat())
             }
 
-            rai as RandomAccessibleInterval<*>
+            rai as IterableInterval<*>
         }
     )
 
@@ -102,10 +103,10 @@ class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<
             }
         }
 
-    val datasetLoader = object : DatasetLoader<RandomAccessibleInterval<*>> {
+    val datasetLoader = object : DatasetLoader<IterableInterval<*>> {
         override val information = ModuleInformation("Generates samples in the range [-10:10:0.5].")
 
-        override fun load(): Dataset<RandomAccessibleInterval<*>> {
+        override fun load(): Dataset<IterableInterval<*>> {
             val opService = ImageJOpsOperationLoader.ops
             val factory = CellImgFactory(FloatType(), 2)
 
@@ -153,7 +154,7 @@ class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<
                 }
 
                 val floatImg = opService.run("convert.float32", img)
-                Targets.Single(floatImg as RandomAccessibleInterval<*>)
+                Targets.Single(floatImg as IterableInterval<*>)
             }
 
             return Dataset(
@@ -163,12 +164,12 @@ class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<
         }
     }
 
-    override val operationLoader = ImageJOpsOperationLoader<RandomAccessibleInterval<*>>(
-        typeFilter = RandomAccessibleInterval::class.java,
+    override val operationLoader = ImageJOpsOperationLoader<IterableInterval<*>>(
+        typeFilter = IterableInterval::class.java,
         opsFilter= config.operations
     )
-    val defaultImage: RandomAccessibleInterval<*>
-    val whiteImage: RandomAccessibleInterval<*>
+    val defaultImage: IterableInterval<*>
+    val whiteImage: IterableInterval<*>
 
     init {
         val factory = CellImgFactory(FloatType(), 2)
@@ -189,16 +190,16 @@ class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<
     override val defaultValueProvider = DefaultValueProviders.constantValueProvider(defaultImage)
 
     override val fitnessFunctionProvider = {
-        val ff: SingleOutputFitnessFunction<RandomAccessibleInterval<*>> = object : SingleOutputFitnessFunction<RandomAccessibleInterval<*>>() {
+        val ff: SingleOutputFitnessFunction<IterableInterval<*>> = object : SingleOutputFitnessFunction<IterableInterval<*>>() {
 
-            override fun fitness(outputs: List<Outputs.Single<RandomAccessibleInterval<*>>>, cases: List<FitnessCase<RandomAccessibleInterval<*>>>): Double {
+            override fun fitness(outputs: List<Outputs.Single<IterableInterval<*>>>, cases: List<FitnessCase<IterableInterval<*>>>): Double {
                 val fitness = try {
                     cases.zip(outputs).map { (case, actual) ->
                         val raiExpected = (case.target as Targets.Single).value
                         val raiActual = actual.value
 
-                        val cursorExpected = Views.iterable(raiExpected).cursor()
-                        val cursorActual = Views.iterable(raiActual).cursor()
+                        val cursorExpected = Views.iterable(raiExpected as RandomAccessibleInterval<*>).cursor()
+                        val cursorActual = Views.iterable(raiActual as RandomAccessibleInterval<*>).cursor()
 
                         var difference = 0.0f
                         while (cursorActual.hasNext() && cursorExpected.hasNext()) {
@@ -226,7 +227,7 @@ class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<
         ff
     }
 
-    override val registeredModules = ModuleContainer<RandomAccessibleInterval<*>, Outputs.Single<RandomAccessibleInterval<*>>>(
+    override val registeredModules = ModuleContainer<IterableInterval<*>, Outputs.Single<IterableInterval<*>>>(
         modules = mutableMapOf(
             CoreModuleType.InstructionGenerator to { environment ->
                 BaseInstructionGenerator(environment)
@@ -265,7 +266,7 @@ class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<
                     // Use identity func. since the probabilities
                     // of other micro mutations mean that we aren't
                     // modifying constants.
-                    constantMutationFunc = ConstantMutationFunctions.identity<RandomAccessibleInterval<*>>()
+                    constantMutationFunc = ConstantMutationFunctions.identity<IterableInterval<*>>()
                 )
             },
             CoreModuleType.FitnessContext to { environment ->
@@ -281,14 +282,14 @@ class MitosisFinderProblem: Problem<RandomAccessibleInterval<*>, Outputs.Single<
             this.operationLoader,
             this.defaultValueProvider,
             this.fitnessFunctionProvider,
-            ResultAggregators.InMemoryResultAggregator<RandomAccessibleInterval<*>>()
+            ResultAggregators.InMemoryResultAggregator<IterableInterval<*>>()
         )
 
         this.environment.registerModules(this.registeredModules)
     }
 
     override fun initialiseModel() {
-        this.model = Models.SteadyState(this.environment)
+        this.model = Models.IslandMigration(this.environment, Models.IslandMigration.IslandMigrationOptions(8, 4, 4))
     }
 
     override fun solve(): MitosisSolution {
@@ -341,13 +342,13 @@ class MitosisFinder {
             problem.initialiseEnvironment()
             problem.initialiseModel()
             val solution = problem.solve()
-            val simplifier = BaseProgramSimplifier<RandomAccessibleInterval<*>, Outputs.Single<RandomAccessibleInterval<*>>>()
+            val simplifier = BaseProgramSimplifier<IterableInterval<*>, Outputs.Single<IterableInterval<*>>>()
 
             println("Results:")
 
             solution.result.evaluations.forEachIndexed { run, res ->
                 println("Run ${run + 1} (best fitness = ${res.best.fitness})")
-                println(simplifier.simplify(res.best as BaseProgram<RandomAccessibleInterval<*>, Outputs.Single<RandomAccessibleInterval<*>>>))
+                println(simplifier.simplify(res.best as BaseProgram<IterableInterval<*>, Outputs.Single<IterableInterval<*>>>))
 
                 println("\nStats (last run only):\n")
 
