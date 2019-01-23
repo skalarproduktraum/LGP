@@ -75,14 +75,15 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
 
     private val config = this.configLoader.load()
 
-    val defaultSize = 2048L
+    val imageWidth = 320L
+    val imageHeight = 240L
 
     override val constantLoader = GenericConstantLoader(
         constants = config.constants,
         parseFunction = { s ->
             val f = CellImgFactory(FloatType(), 2)
-            val img = f.create(defaultSize, defaultSize)
-            val rai = Views.interval(img, longArrayOf(0, 0), longArrayOf(defaultSize - 1, defaultSize - 1))
+            val img = f.create(imageWidth, imageHeight)
+            val rai = Views.interval(img, longArrayOf(0, 0), longArrayOf(imageWidth- 1, imageHeight - 1))
             val cursor = rai.cursor()
             while(cursor.hasNext()) {
                 cursor.fwd()
@@ -110,6 +111,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
             val opService = ImageJOpsOperationLoader.ops
             val factory = CellImgFactory(FloatType(), 2)
 
+            println("Loading input images ...")
             val inputs = inputFiles.map { filename ->
                 println("Loading input file $filename")
                 val img = IO.openImgs(filename.toString())[0]
@@ -130,13 +132,13 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                 Sample(listOf(Feature(name = "image", value = final)))
             }
 
+            println("Loading ground truth masks ...")
             val outputs = inputFiles.mapIndexed { i, filename ->
                 // convert the positions from the CSV file into a binary image
                 val id = filename.name.substringBeforeLast("_").toInt()
                 val AB = if(id < 6) { "A" } else { "B" }
                 val maskFileName = "OperatorA_${filename.parent.substringAfterLast("/")}-${AB}_${String.format("%02d", id)}.tiff"
                 val f = "$inputDirectory/IRISSEG-EP-Masks/masks/iitd/$maskFileName"
-                println("Opening $f...")
                 val img = IO.openImgs(f)[0]
 
                 val floatImg = opService.run("convert.float32", img)
@@ -159,13 +161,13 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
 
     init {
         val factory = CellImgFactory(FloatType(), 2)
-        val img = factory.create(defaultSize, defaultSize)
+        val img = factory.create(imageWidth, imageHeight)
 
-        defaultImage = Views.interval(img, longArrayOf(0, 0), longArrayOf(defaultSize, defaultSize))
+        defaultImage = Views.interval(img, longArrayOf(0, 0), longArrayOf(imageWidth-1, imageHeight-1))
 
-        val whiteImg = factory.create(defaultSize, defaultSize)
+        val whiteImg = factory.create(imageWidth, imageHeight)
 
-        whiteImage = Views.interval(whiteImg, longArrayOf(0, 0), longArrayOf(defaultSize, defaultSize))
+        whiteImage = Views.interval(whiteImg, longArrayOf(0, 0), longArrayOf(imageWidth-1, imageHeight-1))
         val cursor = whiteImg.cursor()
         while(cursor.hasNext()) {
             cursor.fwd()
@@ -327,6 +329,7 @@ class IrisDetector {
             val problem = IrisDetectorProblem()
             problem.initialiseEnvironment()
             problem.initialiseModel()
+            println("IrisDetector: Loading images and ground truth masks from ${problem.maxDirectories} directories")
             val solution = problem.solve()
             val simplifier = BaseProgramSimplifier<IterableInterval<*>, Outputs.Single<IterableInterval<*>>>()
 
