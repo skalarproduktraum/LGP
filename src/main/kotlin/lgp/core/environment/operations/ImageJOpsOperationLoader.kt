@@ -67,7 +67,8 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
                 CellImgFactory(FloatType(), 2)
             }
 
-            val img = f.create(2048, 2048)
+            val input = args.get(0) as IterableInterval<*>
+            val img = f.create(input.dimension(0), input.dimension(1))
 
             img as T
         }
@@ -134,7 +135,8 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
             println("${Thread.currentThread().id}: Parameters were: ${parameters.joinToString(",")}")
             e.printStackTrace()
             val f = CellImgFactory(FloatType(), 2)
-            val img = f.create(2048, 2048)
+            val input = args.get(0) as IterableInterval<*>
+            val img = f.create(input.dimension(0), input.dimension(1))
 
             img as T
         }
