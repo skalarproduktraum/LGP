@@ -10,7 +10,6 @@ filter.sobel
 filter.tubeness
 filter.variance
 image.fill
-image.invert
 image.normalize
 math.abs
 math.add
