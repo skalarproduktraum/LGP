@@ -32,7 +32,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
 
     class UnaryOpsOperation<T>(val opInfo: OpInfo, val parameters: List<Any> = emptyList(), val requiresInOut: Boolean = false) : UnaryOperation<T>({ args: Arguments<T> ->
         try {
-            println("${Thread.currentThread().id}: Running unary op ${opInfo.name} (${opInfo.inputs().joinToString { it.type.simpleName }} -> ${opInfo.outputs().joinToString { it.type.simpleName }}), parameters: ${parameters.joinToString(",")}")
+            printlnMaybe("${Thread.currentThread().id}: Running unary op ${opInfo.name} (${opInfo.inputs().joinToString { it.type.simpleName }} -> ${opInfo.outputs().joinToString { it.type.simpleName }}), parameters: ${parameters.joinToString(",")}")
             val arguments = mutableListOf<Any>()
 
             if(requiresInOut) {
@@ -58,9 +58,11 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
                 opsOutput
             }
         } catch (e: Exception) {
-            println("${Thread.currentThread().id}: Execution of unary ${opInfo.name} failed, returning empty image.")
-            println("${Thread.currentThread().id}: Parameters were: ${parameters.joinToString(",")}")
-            e.printStackTrace()
+            printlnMaybe("${Thread.currentThread().id}: Execution of unary ${opInfo.name} failed, returning empty image.")
+            printlnMaybe("${Thread.currentThread().id}: Parameters were: ${parameters.joinToString(",")}")
+            if(!silent) {
+                e.printStackTrace()
+            }
             val f = if(opInfo.name.startsWith("threshold.")) {
                 CellImgFactory(BitType(), 2)
             } else {
@@ -109,7 +111,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
 //        val op = ops.module(opInfo.name, args.get(0), args.get(1))
 //        op.run()
         try {
-            println("${Thread.currentThread().id}: Running binary op ${opInfo.name} (${opInfo.inputs().joinToString { it.type.simpleName }} -> ${opInfo.outputs().joinToString { it.type.simpleName }}), parameters: ${parameters.joinToString(",")}")
+            printlnMaybe("${Thread.currentThread().id}: Running binary op ${opInfo.name} (${opInfo.inputs().joinToString { it.type.simpleName }} -> ${opInfo.outputs().joinToString { it.type.simpleName }}), parameters: ${parameters.joinToString(",")}")
             val arguments = mutableListOf<Any>()
 
             if(requiresInOut) {
@@ -131,9 +133,11 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
 
             ops.run(opInfo.name, *(arguments.toTypedArray())) as T
         } catch (e: Exception) {
-            println("${Thread.currentThread().id}: Execution of binary ${opInfo.name} failed, returning empty image.")
-            println("${Thread.currentThread().id}: Parameters were: ${parameters.joinToString(",")}")
-            e.printStackTrace()
+            printlnMaybe("${Thread.currentThread().id}: Execution of binary ${opInfo.name} failed, returning empty image.")
+            printlnMaybe("${Thread.currentThread().id}: Parameters were: ${parameters.joinToString(",")}")
+            if(!silent) {
+                e.printStackTrace()
+            }
             val f = CellImgFactory(FloatType(), 2)
             val input = args.get(0) as IterableInterval<*>
             val img = f.create(input.dimension(0), input.dimension(1))
@@ -269,6 +273,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
 
 
     companion object {
+        var silent = System.getProperty("EvolveSilent", "false").toBoolean()
         var infosPrinted = false
         val context = Context(
             ImageJService::class.java,
@@ -281,6 +286,12 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
 
         fun printlnOnce(message: Any?) {
             if(!infosPrinted) {
+                println(message)
+            }
+        }
+
+        fun printlnMaybe(message: Any?) {
+            if(!silent) {
                 println(message)
             }
         }
