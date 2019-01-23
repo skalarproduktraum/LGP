@@ -58,8 +58,8 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
                 opsOutput
             }
         } catch (e: Exception) {
-            println("Execution of unary ${opInfo.name} failed, returning empty image.")
-            println("Parameters were: ${parameters.joinToString(",")}")
+            println("${Thread.currentThread().id}: Execution of unary ${opInfo.name} failed, returning empty image.")
+            println("${Thread.currentThread().id}: Parameters were: ${parameters.joinToString(",")}")
             e.printStackTrace()
             val f = if(opInfo.name.startsWith("threshold.")) {
                 CellImgFactory(BitType(), 2)
@@ -130,8 +130,8 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
 
             ops.run(opInfo.name, *(arguments.toTypedArray())) as T
         } catch (e: Exception) {
-            println("Execution of binary ${opInfo.name} failed, returning empty image.")
-            println("Parameters were: ${parameters.joinToString(",")}")
+            println("${Thread.currentThread().id}: Execution of binary ${opInfo.name} failed, returning empty image.")
+            println("${Thread.currentThread().id}: Parameters were: ${parameters.joinToString(",")}")
             e.printStackTrace()
             val f = CellImgFactory(FloatType(), 2)
             val img = f.create(2048, 2048)
@@ -165,14 +165,14 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
 
         val opsFilterFile = File("minimalOps.txt")
         val allowedOps = opsFilterFile.readLines()
-        println("Got ${allowedOps.size} allowed ops from ${opsFilterFile.name}")
+        printlnOnce("Got ${allowedOps.size} allowed ops from ${opsFilterFile.name}")
 
         val unarySubtypes =  ref.getSubTypesOf(UnaryOp::class.java)
         val binarySubtypes =  ref.getSubTypesOf(BinaryOp::class.java)
 
         unarySubtypes.removeAll(binarySubtypes)
 
-        println("${unarySubtypes.size} unary classes, ${binarySubtypes.size} binary classes")
+        printlnOnce("${unarySubtypes.size} unary classes, ${binarySubtypes.size} binary classes")
 
 
         fun unaryOrBinary(info: OpInfo): OpArity {
@@ -201,7 +201,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
             }
 
             return op.inputs().drop(cutoff).mapNotNull { input ->
-                println("Requires parameter of ${input.type}")
+                printlnOnce("Requires parameter of ${input.type}")
                 when(input.type) {
                     Shape::class.java -> HyperSphereShape((Math.random()*10.0f).toLong())
                     Boolean::class.java -> Math.random().toBoolean()
@@ -228,7 +228,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
             && !it.inputs().any { i -> i.type.simpleName.contains("UnaryComputerOp") || i.type.simpleName.contains("UnaryFunctionOp") }
         }.map {
             val requiresInOut = it.inputs()[0].name == "out" && it.inputs()[1].name == "in"
-            println("UnaryOp ${it.name} has output type ${it.outputs()[0].type}/${it.outputs()[0].genericType} requiresInOut=$requiresInOut")
+            printlnOnce("UnaryOp ${it.name} has output type ${it.outputs()[0].type}/${it.outputs()[0].genericType} requiresInOut=$requiresInOut")
 
             UnaryOpsOperation<T>(it, augmentParameters(it), requiresInOut)
         }
@@ -243,18 +243,19 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
                 false
             }
 
-            println("BinaryOp ${it.name} has output type ${it.outputs()[0].type}/${it.outputs()[0].genericType} requiresInOut=$requiresInOut")
+            printlnOnce("BinaryOp ${it.name} has output type ${it.outputs()[0].type}/${it.outputs()[0].genericType} requiresInOut=$requiresInOut")
             BinaryOpsOperation<T>(it, augmentParameters(it), requiresInOut)
         }
 
-        println("Collected ${unaryOps.size} unary ops and ${binaryOps.size} binary ops")
-        println("Unary ops: ${unaryOps.joinToString { "${it.opInfo.name} (${it.opInfo.inputs().size})" }}")
-        println("Binary ops: ${binaryOps.joinToString { "${it.opInfo.name} (${it.opInfo.inputs().size})" }}")
+        printlnOnce("Collected ${unaryOps.size} unary ops and ${binaryOps.size} binary ops:")
+        printlnOnce("Unary: ${unaryOps.joinToString { "${it.opInfo.name} (${it.opInfo.inputs().size})" }}")
+        printlnOnce("Binary: ${binaryOps.joinToString { "${it.opInfo.name} (${it.opInfo.inputs().size})" }}")
 
         if(unaryOps.isEmpty() || binaryOps.isEmpty()) {
             throw IllegalStateException("Didn't discover either unary or binary ops. Type filtering gone wrong?")
         }
 
+        infosPrinted = true
         return unaryOps + binaryOps
     }
 
@@ -266,6 +267,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
 
 
     companion object {
+        var infosPrinted = false
         val context = Context(
             ImageJService::class.java,
             SciJavaService::class.java,
@@ -274,6 +276,12 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
         )
 
         val ops: OpService = context.getService(OpService::class.java) as OpService
+
+        fun printlnOnce(message: Any?) {
+            if(!infosPrinted) {
+                println(message)
+            }
+        }
     }
 
 }
