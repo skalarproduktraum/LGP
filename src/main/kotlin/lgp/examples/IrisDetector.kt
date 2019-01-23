@@ -204,7 +204,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                     Float.NEGATIVE_INFINITY
                 }
 
-                println("Fitness = $fitness")
+//                println("Fitness = $fitness")
                 return when {
                     fitness.isFinite() -> ((1.0 / cases.size.toDouble()) * fitness)
                     else               -> FitnessFunctions.UNDEFINED_FITNESS
@@ -299,7 +299,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
             }
             */
 
-            val runner = DistributedTrainer(environment, model, runs = 8)
+            val runner = DistributedTrainer(environment, model, runs = 2)
 
             return runBlocking {
                 val job = runner.trainAsync(
