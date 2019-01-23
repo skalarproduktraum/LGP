@@ -14,6 +14,7 @@ import net.imglib2.Localizable
 import net.imglib2.Point
 import net.imglib2.RandomAccessibleInterval
 import net.imglib2.algorithm.neighborhood.HyperSphereShape
+import net.imglib2.algorithm.neighborhood.RectangleShape
 import net.imglib2.algorithm.neighborhood.Shape
 import net.imglib2.img.cell.CellImgFactory
 import net.imglib2.outofbounds.OutOfBoundsFactory
@@ -27,6 +28,7 @@ import org.scijava.Context
 import org.scijava.service.SciJavaService
 import org.scijava.thread.ThreadService
 import java.io.File
+import kotlin.random.Random
 
 class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<String> = emptyList()) : OperationLoader<T> {
 
@@ -63,7 +65,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
             if(!silent) {
                 e.printStackTrace()
             }
-            val f = if(opInfo.name.startsWith("threshold.")) {
+            /*val f = if(opInfo.name.startsWith("threshold.")) {
                 CellImgFactory(BitType(), 2)
             } else {
                 CellImgFactory(FloatType(), 2)
@@ -73,6 +75,8 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
             val img = f.create(input.dimension(0), input.dimension(1))
 
             img as T
+            */
+            args.get(0)
         }
     }) {
         /**
@@ -112,7 +116,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
 //        op.run()
         try {
             printlnMaybe("${Thread.currentThread().id}: Running binary op ${opInfo.name} (${opInfo.inputs().joinToString { it.type.simpleName }} -> ${opInfo.outputs().joinToString { it.type.simpleName }}), parameters: ${parameters.joinToString(",")}")
-            val arguments = mutableListOf<Any>()
+            val arguments = mutableListOf<Any?>()
 
             if(requiresInOut) {
                 val ii = args.get(0) as IterableInterval<*>
@@ -122,7 +126,11 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
                     CellImgFactory(FloatType(), 2)
                 }
 
-                val output = factory.create(ii.dimension(0), ii.dimension(1))
+                val output = if(opInfo.name in nonConformantOps) {
+                    null
+                } else {
+                    factory.create(ii.dimension(0), ii.dimension(1))
+                }
 
                 arguments.add(output)
             }
@@ -138,11 +146,14 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
             if(!silent) {
                 e.printStackTrace()
             }
+            /*
             val f = CellImgFactory(FloatType(), 2)
             val input = args.get(0) as IterableInterval<*>
             val img = f.create(input.dimension(0), input.dimension(1))
 
             img as T
+            */
+            args.get(1)
         }
     }
     ) {
@@ -157,6 +168,9 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
             description = ops.help(opInfo.name)
         )
 
+        companion object {
+            val nonConformantOps = listOf("math.divide", "math.subtract", "math.add", "math.multiply")
+        }
     }
     enum class OpArity { Unary, Binary, Unknown }
     /**
@@ -209,19 +223,32 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
             return op.inputs().drop(cutoff).mapNotNull { input ->
                 printlnOnce("Requires parameter of ${input.type}")
                 when(input.type) {
-                    Shape::class.java -> HyperSphereShape((Math.random()*10.0f).toLong())
-                    Boolean::class.java -> Math.random().toBoolean()
-                    Double::class.java -> Math.random()
-                    Float::class.java -> Math.random().toFloat()
-                    Int::class.java -> (Math.random() * 10.0f).toInt()
-                    Long::class.java -> (Math.random() * 10.0f).toInt()
-                    Byte::class.java -> (Math.random() * 255).toByte()
-                    NumericType::class.java -> FloatType(Math.random().toFloat())
-                    RealType::class.java -> FloatType(Math.random().toFloat())
-                    Localizable::class.java -> Point((Math.random() * 2048).toInt(), (Math.random() * 2048).toInt())
-                    DoubleArray::class.java -> doubleArrayOf(Math.random(), Math.random())
+                    Shape::class.java -> HyperSphereShape(Random.nextLong(0, 10))
+                    RectangleShape::class.java -> RectangleShape(Random.nextInt(0, 5), Random.nextBoolean())
+                    Boolean::class.java -> Random.nextBoolean()
+                    Double::class.java -> Random.nextDouble()
+                    java.lang.Double::class.java -> Random.nextDouble()
+                    Float::class.java -> Random.nextFloat()
+                    java.lang.Float::class.java -> Random.nextFloat()
+                    Int::class.java -> Random.nextInt(0, 5)
+                    Long::class.java -> Random.nextLong(0, 5)
+                    Byte::class.java -> Random.nextInt(0, 255).toByte()
+                    NumericType::class.java -> FloatType(Random.nextFloat())
+                    RealType::class.java -> FloatType(Random.nextFloat())
+                    Localizable::class.java -> Point(Random.nextInt(-10, 10), Random.nextInt(-10, 10))
+                    DoubleArray::class.java -> doubleArrayOf(Random.nextDouble(), Random.nextDouble())
                     OutOfBoundsFactory::class.java -> OutOfBoundsPeriodicFactory<FloatType, RandomAccessibleInterval<FloatType>>()
-                    else -> null
+
+                    // TODO: see if we can construct these in some cases.
+                    IterableInterval::class.java -> null
+                    RandomAccessibleInterval::class.java -> null
+
+                    // fall-through, show error
+                    else -> {
+                        System.err.println("Don't know how to construct ${input.type}")
+
+                        null
+                    }
                 }
             }
         }
