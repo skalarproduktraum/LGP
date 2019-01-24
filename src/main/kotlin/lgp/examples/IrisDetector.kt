@@ -20,9 +20,11 @@ import lgp.lib.*
 import net.imglib2.IterableInterval
 import net.imglib2.RandomAccessibleInterval
 import net.imglib2.img.cell.CellImgFactory
+import net.imglib2.img.display.imagej.ImageJFunctions
 import net.imglib2.type.numeric.real.FloatType
 import net.imglib2.view.Views
 import java.io.File
+import kotlin.math.absoluteValue
 
 /*
  * An example of setting up an environment to use LGP to find programs for the function `x^2 + 2x + 2`.
@@ -95,7 +97,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
     )
 
     val inputDirectory: String = System.getProperty("IrisDataDirectory", "IrisProject")
-    val maxDirectories = 5
+    val maxDirectories = 1
 
     val inputFiles = (1..maxDirectories)
         .map { "$inputDirectory/iitd/${String.format("%03d", it)}/"}
@@ -116,20 +118,12 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                 println("Loading input file $filename")
                 val img = IO.openImgs(filename.toString())[0]
                 val floatImg = opService.run("convert.float32", img) as RandomAccessibleInterval<*>
-                val floatImgCursor = Views.interval(floatImg,
-                    longArrayOf(0L, 0L, 0L),
-                    longArrayOf(floatImg.dimension(0) - 1, floatImg.dimension(1) - 1, 0L)).cursor()
 
-                val final = factory.create(floatImg.dimension(0), floatImg.dimension(1))
-                val finalCursor = final.cursor()
+                val final = Views.hyperSlice(floatImg, 2, 0)
 
-                while(floatImgCursor.hasNext()) {
-                    floatImgCursor.fwd()
-                    finalCursor.fwd()
-                    finalCursor.get().set(floatImgCursor.get() as FloatType)
-                }
+//                ImageJFunctions.showFloat(final as RandomAccessibleInterval<FloatType>, filename.toString())
 
-                Sample(listOf(Feature(name = "image", value = final)))
+                Sample(listOf(Feature(name = "image", value = final as IterableInterval<*>)))
             }
 
             println("Loading ground truth masks ...")
@@ -142,6 +136,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                 val img = IO.openImgs(f)[0]
 
                 val floatImg = opService.run("convert.float32", img)
+//                ImageJFunctions.show(floatImg as RandomAccessibleInterval<FloatType>, maskFileName)
                 Targets.Single(floatImg as IterableInterval<*>)
             }
 
@@ -186,16 +181,16 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                         val raiExpected = (case.target as Targets.Single).value
                         val raiActual = actual.value
 
-                        val cursorExpected = Views.iterable(raiExpected as RandomAccessibleInterval<*>).cursor()
-                        val cursorActual = Views.iterable(raiActual as RandomAccessibleInterval<*>).cursor()
+                        val cursorExpected = Views.iterable(raiExpected as RandomAccessibleInterval<*>).localizingCursor()
+                        val cursorActual = Views.iterable(raiActual as RandomAccessibleInterval<*>).localizingCursor()
 
                         var difference = 0.0f
                         while (cursorActual.hasNext() && cursorExpected.hasNext()) {
                             cursorActual.fwd()
                             cursorExpected.fwd()
 
-                            difference = (cursorActual.get() as FloatType).get() -
-                                    (cursorExpected.get() as FloatType).get()
+                            difference += ((cursorActual.get() as FloatType).get() -
+                                    (cursorExpected.get() as FloatType).get()).absoluteValue
                         }
 
                         difference
@@ -204,7 +199,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                     Float.NEGATIVE_INFINITY
                 }
 
-//                println("Fitness = $fitness")
+                println("Fitness = $fitness")
                 return when {
                     fitness.isFinite() -> ((1.0 / cases.size.toDouble()) * fitness)
                     else               -> FitnessFunctions.UNDEFINED_FITNESS
