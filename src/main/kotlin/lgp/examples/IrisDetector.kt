@@ -1,5 +1,6 @@
 package lgp.examples
 
+import io.scif.SCIFIOService
 import io.scif.img.IO
 import kotlinx.coroutines.runBlocking
 import lgp.core.environment.*
@@ -17,14 +18,27 @@ import lgp.core.evolution.training.TrainingResult
 import lgp.core.modules.ModuleInformation
 import lgp.core.program.Outputs
 import lgp.lib.*
+import net.imagej.DefaultDataset
+import net.imagej.ImageJService
+import net.imagej.ImgPlus
+import net.imagej.ops.OpService
 import net.imglib2.IterableInterval
 import net.imglib2.RandomAccessibleInterval
+import net.imglib2.img.Img
 import net.imglib2.img.cell.CellImgFactory
 import net.imglib2.img.display.imagej.ImageJFunctions
+import net.imglib2.type.numeric.RealType
 import net.imglib2.type.numeric.real.FloatType
 import net.imglib2.view.Views
+import org.scijava.Context
+import org.scijava.io.IOPlugin
+import org.scijava.io.IOService
+import org.scijava.service.SciJavaService
+import org.scijava.thread.ThreadService
+import org.scijava.ui.UIService
 import java.io.File
 import kotlin.math.absoluteValue
+import kotlin.math.sqrt
 
 /*
  * An example of setting up an environment to use LGP to find programs for the function `x^2 + 2x + 2`.
@@ -52,10 +66,10 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
         override fun load(): Configuration {
             val config = Configuration()
 
-            config.initialMinimumProgramLength = 5
-            config.initialMaximumProgramLength = 10
+            config.initialMinimumProgramLength = 10
+            config.initialMaximumProgramLength = 30
             config.minimumProgramLength = 5
-            config.maximumProgramLength = 20
+            config.maximumProgramLength = 50
             config.operations = listOf(
                 "lgp.lib.operations.Addition",
                 "lgp.lib.operations.Subtraction",
@@ -75,7 +89,10 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
         }
     }
 
+    private val startTime = System.currentTimeMillis()
+
     private val config = this.configLoader.load()
+    private val useMCCfitness = true
 
     val imageWidth = 320L
     val imageHeight = 240L
@@ -116,7 +133,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
             println("Loading input images ...")
             val inputs = inputFiles.map { filename ->
                 println("Loading input file $filename")
-                val img = IO.openImgs(filename.toString())[0]
+                val img = io.open(filename.toString()) as Img<*>
                 val floatImg = opService.run("convert.float32", img) as RandomAccessibleInterval<*>
 
                 val final = Views.hyperSlice(floatImg, 2, 0)
@@ -133,7 +150,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                 val AB = if(id < 6) { "A" } else { "B" }
                 val maskFileName = "OperatorA_${filename.parent.substringAfterLast("/")}-${AB}_${String.format("%02d", id)}.tiff"
                 val f = "$inputDirectory/IRISSEG-EP-Masks/masks/iitd/$maskFileName"
-                val img = IO.openImgs(f)[0]
+                val img = io.open(f) as Img<*>
 
                 val floatImg = opService.run("convert.float32", img)
 //                ImageJFunctions.show(floatImg as RandomAccessibleInterval<FloatType>, maskFileName)
@@ -176,34 +193,107 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
         val ff: SingleOutputFitnessFunction<IterableInterval<*>> = object : SingleOutputFitnessFunction<IterableInterval<*>>() {
 
             override fun fitness(outputs: List<Outputs.Single<IterableInterval<*>>>, cases: List<FitnessCase<IterableInterval<*>>>): Double {
-                val fitness = try {
+                val fitnessAbsoluteDifferences = {
                     cases.zip(outputs).map { (case, actual) ->
                         val raiExpected = (case.target as Targets.Single).value
                         val raiActual = actual.value
+
 
                         val cursorExpected = Views.iterable(raiExpected as RandomAccessibleInterval<*>).localizingCursor()
                         val cursorActual = Views.iterable(raiActual as RandomAccessibleInterval<*>).localizingCursor()
 
                         var difference = 0.0f
+                        var counts = 0
                         while (cursorActual.hasNext() && cursorExpected.hasNext()) {
                             cursorActual.fwd()
                             cursorExpected.fwd()
 
                             difference += ((cursorActual.get() as FloatType).get() -
                                     (cursorExpected.get() as FloatType).get()).absoluteValue
+                            counts++
+                        }
+
+                        difference /= counts
+
+                        if(difference < 100) {
+                            val ds = DefaultDataset(context, ImgPlus.wrap(raiExpected as Img<RealType<*>>))
+                            val dsActual = DefaultDataset(context, ImgPlus.wrap(raiActual as Img<RealType<*>>))
+                            val timestamp = System.currentTimeMillis()
+                            io.save(dsActual, "$startTime/$timestamp-actual-fitness=$difference.tiff")
+                            io.save(ds, "$startTime/$timestamp-expected.tiff")
                         }
 
                         difference
                     }.sum()
+                }
+
+                val fitnessMatthewsCorrelationCoefficient = {
+                    1.0f - cases.zip(outputs).map { (case, actual) ->
+                        var trueNegatives = 0L
+                        var falseNegatives = 0L
+                        var truePositives = 0L
+                        var falsePositives = 0L
+
+                        val raiExpected = (case.target as Targets.Single).value
+                        val raiActual = actual.value
+
+                        val cursorExpected = Views.iterable(raiExpected as RandomAccessibleInterval<*>).localizingCursor()
+                        val cursorActual = Views.iterable(raiActual as RandomAccessibleInterval<*>).localizingCursor()
+
+                        while(cursorActual.hasNext() && cursorExpected.hasNext()) {
+                            cursorActual.fwd()
+                            cursorExpected.fwd()
+
+                            val actualValue = (cursorActual.get() as FloatType).get()
+                            val expectedValue = (cursorExpected.get() as FloatType).get()
+
+                            if(expectedValue < 254.9f && actualValue < 254.9f) {
+                                trueNegatives++
+                            }
+
+                            if(expectedValue > 254.9f && actualValue < 254.9f) {
+                                falseNegatives++
+                            }
+
+                            if(expectedValue > 254.9f && actualValue > 254.9f) {
+                                truePositives++
+                            }
+
+                            if(expectedValue < 254.9f && actualValue > 254.9f) {
+                                falsePositives++
+                            }
+                        }
+
+                        val denom = (truePositives + falsePositives) * (truePositives + falseNegatives) * (trueNegatives + falsePositives) * (trueNegatives + falseNegatives)
+                        val mccDenom = if(denom == 0L) {
+                            1.0
+                        } else {
+                            sqrt(denom.toDouble())
+                        }
+
+                        val mcc = (truePositives * trueNegatives - falsePositives * falseNegatives)/mccDenom
+                        println("MCC=$mcc, TP=$truePositives, FP=$falsePositives, TN=$trueNegatives, FN=$falseNegatives")
+                        mcc.toFloat()
+                    }.sum().absoluteValue
+                }
+
+                val fitness = try {
+                    if(useMCCfitness) {
+                        fitnessMatthewsCorrelationCoefficient.invoke()
+                    } else {
+                        fitnessAbsoluteDifferences.invoke()
+                    }
                 } catch (e: Exception) {
                     Float.NEGATIVE_INFINITY
                 }
 
-                println("Fitness = $fitness")
-                return when {
-                    fitness.isFinite() -> ((1.0 / cases.size.toDouble()) * fitness)
+                val f = when {
+                    fitness.isFinite() -> fitness / cases.size.toDouble()
                     else               -> FitnessFunctions.UNDEFINED_FITNESS
                 }
+
+                println("Fitness = $f")
+                return f
             }
         }
 
@@ -272,7 +362,8 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
     }
 
     override fun initialiseModel() {
-        this.model = Models.IslandMigration(this.environment, Models.IslandMigration.IslandMigrationOptions(8, 4, 4))
+//        this.model = Models.IslandMigration(this.environment, Models.IslandMigration.IslandMigrationOptions(8, 4, 4))
+        this.model = Models.SteadyState(this.environment)
     }
 
     override fun solve(): IrisDetectorSolution {
@@ -314,6 +405,24 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                 "The initialisation routines for this problem must be run before it can be solved."
             )
         }
+    }
+
+    init {
+       File("$startTime").mkdir()
+    }
+
+    companion object {
+        val context = Context(
+            IOService::class.java,
+            UIService::class.java,
+            OpService::class.java,
+            SciJavaService::class.java,
+            ImageJService::class.java,
+            ThreadService::class.java,
+            SCIFIOService::class.java
+        )
+        val ops = context.getService(OpService::class.java) as OpService
+        val io = context.getService(IOService::class.java) as IOService
     }
 }
 
