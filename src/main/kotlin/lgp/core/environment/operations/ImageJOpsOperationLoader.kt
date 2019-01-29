@@ -3,38 +3,46 @@ package lgp.core.environment.operations
 import lgp.core.modules.ModuleInformation
 import lgp.core.program.instructions.*
 import lgp.core.program.registers.Arguments
+import lgp.examples.IrisDetector
+import lgp.examples.IrisDetectorProblem
 import lgp.lib.operations.toBoolean
-import net.imagej.ImageJService
+import net.imagej.*
 import net.imagej.ops.OpInfo
 import net.imagej.ops.OpService
 import net.imagej.ops.special.BinaryOp
 import net.imagej.ops.special.UnaryOp
-import net.imglib2.IterableInterval
-import net.imglib2.Localizable
-import net.imglib2.Point
-import net.imglib2.RandomAccessibleInterval
+import net.imglib2.*
 import net.imglib2.algorithm.neighborhood.HyperSphereShape
 import net.imglib2.algorithm.neighborhood.RectangleShape
 import net.imglib2.algorithm.neighborhood.Shape
+import net.imglib2.img.ImagePlusAdapter
+import net.imglib2.img.Img
+import net.imglib2.img.cell.CellImg
 import net.imglib2.img.cell.CellImgFactory
+import net.imglib2.img.display.imagej.ImageJFunctions
 import net.imglib2.outofbounds.OutOfBoundsFactory
 import net.imglib2.outofbounds.OutOfBoundsPeriodicFactory
 import net.imglib2.type.logic.BitType
 import net.imglib2.type.numeric.NumericType
 import net.imglib2.type.numeric.RealType
 import net.imglib2.type.numeric.real.FloatType
+import net.imglib2.view.Views
 import org.reflections.Reflections
 import org.scijava.Context
+import org.scijava.io.IOService
 import org.scijava.service.SciJavaService
 import org.scijava.thread.ThreadService
+import org.scijava.ui.UIService
 import java.io.File
+import java.util.*
 import kotlin.random.Random
 
-class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<String> = emptyList()) : OperationLoader<T> {
+class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<String> = emptyList(), opService: OpService? = null) : OperationLoader<T> {
 
     class UnaryOpsOperation<T>(val opInfo: OpInfo, val parameters: List<Any> = emptyList(), val requiresInOut: Boolean = false) : UnaryOperation<T>({ args: Arguments<T> ->
         try {
-            printlnMaybe("${Thread.currentThread().id}: Running unary op ${opInfo.name} (${opInfo.inputs().joinToString { it.type.simpleName }} -> ${opInfo.outputs().joinToString { it.type.simpleName }}), parameters: ${parameters.joinToString(",")}")
+            val start = System.nanoTime()
+            printlnMaybe("${Thread.currentThread().name}: Running unary op ${opInfo.name} (${opInfo.inputs().joinToString { it.type.simpleName }} -> ${opInfo.outputs().joinToString { it.type.simpleName }}), parameters: ${parameters.joinToString(",")}")
             val arguments = mutableListOf<Any>()
 
             if(requiresInOut) {
@@ -54,14 +62,32 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
             arguments.addAll(parameters)
 
             val opsOutput = ops.run(opInfo.name, *(arguments.toTypedArray())) as T
-            if(opInfo.name.startsWith("threshold.")) {
+            val result = if(opInfo.name.startsWith("threshold.")) {
                 ops.run("convert.float32", opsOutput) as T
             } else {
                 opsOutput
             }
+            val duration = System.nanoTime() - start
+            printlnMaybe("${Thread.currentThread().name}: ${opInfo.name} took ${duration/10e5}ms")
+
+            try {
+                if (debugOps) {
+//                    ImageJFunctions.showFloat(result as RandomAccessibleInterval<FloatType>, opInfo.name)
+//                    ui.show(opInfo.name, result)
+                    val filename = "${Thread.currentThread().name}-${System.currentTimeMillis()}-unary-${opInfo.name}.tiff"
+                    println("Saving result $result to $filename via ${io.getSaver(result, filename)}")
+                    val ds = DefaultDataset(context, ImgPlus.wrap(result as Img<RealType<*>>))
+                    io.save(ds, filename)
+                }
+            } catch (e: Exception) {
+                System.err.println("Exception occured while showing debug image: ${e.cause}")
+                e.printStackTrace()
+            }
+
+            result
         } catch (e: Exception) {
-            printlnMaybe("${Thread.currentThread().id}: Execution of unary ${opInfo.name} failed, returning empty image.")
-            printlnMaybe("${Thread.currentThread().id}: Parameters were: ${parameters.joinToString(",")}")
+            printlnMaybe("${Thread.currentThread().name}: Execution of unary ${opInfo.name} failed, returning input image.")
+            printlnMaybe("${Thread.currentThread().name}: Parameters were: ${parameters.joinToString(",")}")
             if(!silent) {
                 e.printStackTrace()
             }
@@ -92,7 +118,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
          * @param destination The destination register of the [Instruction] this [Operation] belongs to.
          */
         override fun toString(operands: List<RegisterIndex>, destination: RegisterIndex): String {
-            return "r[$destination] = r[${ operands[0] }]"
+            return "r[$destination] = $representation(r[${ operands[0] }])"
         }
 
         /**
@@ -115,7 +141,8 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
 //        val op = ops.module(opInfo.name, args.get(0), args.get(1))
 //        op.run()
         try {
-            printlnMaybe("${Thread.currentThread().id}: Running binary op ${opInfo.name} (${opInfo.inputs().joinToString { it.type.simpleName }} -> ${opInfo.outputs().joinToString { it.type.simpleName }}), parameters: ${parameters.joinToString(",")}")
+            val start = System.nanoTime()
+            printlnMaybe("${Thread.currentThread().name}: Running binary op ${opInfo.name} (${opInfo.inputs().joinToString { it.type.simpleName }} -> ${opInfo.outputs().joinToString { it.type.simpleName }}), parameters: ${parameters.joinToString(",")}")
             val arguments = mutableListOf<Any?>()
 
             if(requiresInOut) {
@@ -139,10 +166,28 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
             arguments.add(args.get(1)!!)
             arguments.addAll(parameters)
 
-            ops.run(opInfo.name, *(arguments.toTypedArray())) as T
+            val result = ops.run(opInfo.name, *(arguments.toTypedArray())) as T
+
+            val duration = System.nanoTime() - start
+            printlnMaybe("${Thread.currentThread().name}: ${opInfo.name} took ${duration/10e5}ms")
+            try {
+                if (debugOps) {
+//                    ImageJFunctions.showFloat(result as RandomAccessibleInterval<FloatType>, opInfo.name)
+//                    ui.show(opInfo.name, result)
+                    val filename = "${Thread.currentThread().name}-${System.currentTimeMillis()}-binary-${opInfo.name}.tiff"
+                    println("Saving result $result to $filename via ${io.getSaver(result, filename)}")
+                    val ds = DefaultDataset(context, ImgPlus.wrap(result as Img<RealType<*>>))
+                    io.save(ds, filename)
+                }
+            } catch (e: Exception) {
+                System.err.println("Exception occured while showing debug image: ${e.cause}")
+                e.printStackTrace()
+            }
+
+            result
         } catch (e: Exception) {
-            printlnMaybe("${Thread.currentThread().id}: Execution of binary ${opInfo.name} failed, returning empty image.")
-            printlnMaybe("${Thread.currentThread().id}: Parameters were: ${parameters.joinToString(",")}")
+            printlnMaybe("${Thread.currentThread().name}: Execution of binary ${opInfo.name} failed, returning RHS input image.")
+            printlnMaybe("${Thread.currentThread().name}: Parameters were: ${parameters.joinToString(",")}")
             if(!silent) {
                 e.printStackTrace()
             }
@@ -158,10 +203,10 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
     }
     ) {
         override val representation: String
-        get() = "[ops:${opInfo.name}]"
+        get() = "ops:${opInfo.name}"
 
         override fun toString(operands: List<RegisterIndex>, destination: RegisterIndex): String {
-            return "r[$destination] = r[${operands[0]} $representation ${operands[1]}]"
+            return "r[$destination] = $representation(r[${operands[0]}], r[${operands[1]}])"
         }
 
         override val information = ModuleInformation(
@@ -184,7 +229,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
         val ref = Reflections("net.imagej.ops")
 
         val opsFilterFile = File("minimalOps.txt")
-        val allowedOps = opsFilterFile.readLines()
+        val allowedOps = opsFilterFile.readLines().filter { !it.startsWith("#") }
         printlnOnce("Got ${allowedOps.size} allowed ops from ${opsFilterFile.name}")
 
         val unarySubtypes =  ref.getSubTypesOf(UnaryOp::class.java)
@@ -301,15 +346,13 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
 
     companion object {
         var silent = System.getProperty("EvolveSilent", "false").toBoolean()
+        var debugOps = System.getProperty("DebugOps", "false").toBoolean()
         var infosPrinted = false
-        val context = Context(
-            ImageJService::class.java,
-            SciJavaService::class.java,
-            ThreadService::class.java,
-            OpService::class.java
-        )
+        val context = IrisDetectorProblem.context
 
+        val ui: UIService = context.getService(UIService::class.java) as UIService
         val ops: OpService = context.getService(OpService::class.java) as OpService
+        val io = context.getService(IOService::class.java) as IOService
 
         fun printlnOnce(message: Any?) {
             if(!infosPrinted) {
@@ -321,6 +364,10 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
             if(!silent) {
                 println(message)
             }
+        }
+
+        init {
+            if (!ui.isVisible) ui.showUI()
         }
     }
 
