@@ -228,7 +228,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                 }
 
                 val fitnessMatthewsCorrelationCoefficient = {
-                    1.0f - cases.zip(outputs).map { (case, actual) ->
+                    cases.zip(outputs).map { (case, actual) ->
                         var trueNegatives = 0L
                         var falseNegatives = 0L
                         var truePositives = 0L
@@ -273,8 +273,8 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
 
                         val mcc = (truePositives * trueNegatives - falsePositives * falseNegatives)/mccDenom
                         println("MCC=$mcc, TP=$truePositives, FP=$falsePositives, TN=$trueNegatives, FN=$falseNegatives")
-                        mcc.toFloat()
-                    }.sum().absoluteValue
+                        1.0f - mcc.toFloat().absoluteValue
+                    }.sum()
                 }
 
                 val fitness = try {
