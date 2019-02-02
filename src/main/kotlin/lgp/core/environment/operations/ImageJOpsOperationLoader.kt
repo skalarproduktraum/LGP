@@ -3,9 +3,7 @@ package lgp.core.environment.operations
 import lgp.core.modules.ModuleInformation
 import lgp.core.program.instructions.*
 import lgp.core.program.registers.Arguments
-import lgp.examples.IrisDetector
 import lgp.examples.IrisDetectorProblem
-import lgp.lib.operations.toBoolean
 import net.imagej.*
 import net.imagej.ops.OpInfo
 import net.imagej.ops.OpService
@@ -15,11 +13,8 @@ import net.imglib2.*
 import net.imglib2.algorithm.neighborhood.HyperSphereShape
 import net.imglib2.algorithm.neighborhood.RectangleShape
 import net.imglib2.algorithm.neighborhood.Shape
-import net.imglib2.img.ImagePlusAdapter
 import net.imglib2.img.Img
-import net.imglib2.img.cell.CellImg
-import net.imglib2.img.cell.CellImgFactory
-import net.imglib2.img.display.imagej.ImageJFunctions
+import net.imglib2.img.array.ArrayImgFactory
 import net.imglib2.outofbounds.OutOfBoundsFactory
 import net.imglib2.outofbounds.OutOfBoundsPeriodicFactory
 import net.imglib2.type.logic.BitType
@@ -28,15 +23,10 @@ import net.imglib2.type.numeric.NumericType
 import net.imglib2.type.numeric.RealType
 import net.imglib2.type.numeric.integer.IntType
 import net.imglib2.type.numeric.real.FloatType
-import net.imglib2.view.Views
 import org.reflections.Reflections
-import org.scijava.Context
 import org.scijava.io.IOService
-import org.scijava.service.SciJavaService
-import org.scijava.thread.ThreadService
 import org.scijava.ui.UIService
 import java.io.File
-import java.util.*
 import kotlin.random.Random
 
 class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<String> = emptyList(), opService: OpService? = null) : OperationLoader<T> {
@@ -50,9 +40,9 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
             if(requiresInOut) {
                 val ii = args.get(0) as IterableInterval<*>
                 val factory = if(opInfo.name.startsWith("threshold.")) {
-                    CellImgFactory(BitType(), 2)
+                    ArrayImgFactory(BitType())
                 } else {
-                    CellImgFactory(FloatType(), 2)
+                    ArrayImgFactory(FloatType())
                 }
 
                 val output = factory.create(ii.dimension(0), ii.dimension(1))
@@ -65,7 +55,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
 
             val opsOutput = ops.run(opInfo.name, *(arguments.toTypedArray())) as T
             val result = if(opInfo.name.startsWith("threshold.")) {
-                ops.run("convert.float32", opsOutput) as T
+                ops.run("convert.float32", arguments.get(0)) as T
             } else {
                 opsOutput
             }
@@ -158,9 +148,9 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
             if(requiresInOut) {
                 val ii = args.get(0) as IterableInterval<*>
                 val factory = if(opInfo.name.startsWith("threshold.")) {
-                    CellImgFactory(BitType(), 2)
+                    ArrayImgFactory(BitType())
                 } else {
-                    CellImgFactory(FloatType(), 2)
+                    ArrayImgFactory(FloatType())
                 }
 
                 val output = if(opInfo.name in nonConformantOps) {

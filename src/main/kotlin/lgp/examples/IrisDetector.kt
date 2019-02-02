@@ -25,13 +25,11 @@ import net.imagej.ops.OpService
 import net.imglib2.IterableInterval
 import net.imglib2.RandomAccessibleInterval
 import net.imglib2.img.Img
-import net.imglib2.img.cell.CellImgFactory
-import net.imglib2.img.display.imagej.ImageJFunctions
+import net.imglib2.img.array.ArrayImgFactory
 import net.imglib2.type.numeric.RealType
 import net.imglib2.type.numeric.real.FloatType
 import net.imglib2.view.Views
 import org.scijava.Context
-import org.scijava.io.IOPlugin
 import org.scijava.io.IOService
 import org.scijava.service.SciJavaService
 import org.scijava.thread.ThreadService
@@ -105,7 +103,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
     override val constantLoader = GenericConstantLoader(
         constants = config.constants,
         parseFunction = { s ->
-            val f = CellImgFactory(FloatType(), 2)
+            val f = ArrayImgFactory(FloatType())
             val img = f.create(imageWidth, imageHeight)
             val rai = Views.interval(img, longArrayOf(0, 0), longArrayOf(imageWidth- 1, imageHeight - 1))
             val cursor = rai.cursor()
@@ -133,7 +131,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
 
         override fun load(): Dataset<IterableInterval<*>> {
             val opService = ImageJOpsOperationLoader.ops
-            val factory = CellImgFactory(FloatType(), 2)
+            val factory = ArrayImgFactory(FloatType())
 
             println("Loading input images ...")
             val inputs = inputFiles.map { filename ->
@@ -177,7 +175,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
     val whiteImage: IterableInterval<*>
 
     init {
-        val factory = CellImgFactory(FloatType(), 2)
+        val factory = ArrayImgFactory(FloatType())
         val img = factory.create(imageWidth, imageHeight)
 
         defaultImage = Views.interval(img, longArrayOf(0, 0), longArrayOf(imageWidth-1, imageHeight-1))
