@@ -104,12 +104,12 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
             */
             args.get(0)
         }
-    }) {
+    }), ParameterMutateable<T> {
         /**
          * A way to express an operation in a textual format.
          */
         override val representation: String
-            get() = "ops:${opInfo.name}"
+            get() = opInfo.name
 
         /**
          * Provides a string representation of this operation.
@@ -118,7 +118,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
          * @param destination The destination register of the [Instruction] this [Operation] belongs to.
          */
         override fun toString(operands: List<RegisterIndex>, destination: RegisterIndex): String {
-            return "r[$destination] = $representation(r[${ operands[0] }])"
+            return "r[$destination] = ops.run(\"$representation\", r[${ operands[0] }] ${parametersToCode(parameters)})"
         }
 
         /**
@@ -134,9 +134,17 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
                 else -> this.func(arguments)
             }
         }
+
+        override fun mutateParameters(): UnaryOpsOperation<T> {
+            return UnaryOpsOperation<T>(opInfo, augmentParameters(opInfo), requiresInOut)
+        }
+
+        override fun toString(): String {
+            return representation
+        }
     }
 
-    class BinaryOpsOperation<T>(val opInfo: OpInfo, val parameters: List<Any> = emptyList(), requiresInOut: Boolean = false): BinaryOperation<T>({ args: Arguments<T> ->
+    class BinaryOpsOperation<T>(val opInfo: OpInfo, val parameters: List<Any> = emptyList(), val requiresInOut: Boolean = false): BinaryOperation<T>({ args: Arguments<T> ->
 //        val output = args.get(0)
 //        val op = ops.module(opInfo.name, args.get(0), args.get(1))
 //        op.run()
@@ -201,17 +209,25 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
             args.get(1)
         }
     }
-    ) {
+    ), ParameterMutateable<T> {
         override val representation: String
-        get() = "ops:${opInfo.name}"
+        get() = opInfo.name
 
         override fun toString(operands: List<RegisterIndex>, destination: RegisterIndex): String {
-            return "r[$destination] = $representation(r[${operands[0]}], r[${operands[1]}])"
+            return "r[$destination] = ops.run(\"$representation\", r[${operands[0]}], r[${operands[1]}] ${parametersToCode(parameters)})"
         }
 
         override val information = ModuleInformation(
             description = ops.help(opInfo.name)
         )
+
+        override fun mutateParameters(): BinaryOpsOperation<T> {
+            return BinaryOpsOperation<T>(opInfo, augmentParameters(opInfo), requiresInOut)
+        }
+
+        override fun toString(): String {
+            return representation
+        }
 
         companion object {
             val nonConformantOps = listOf("math.divide", "math.subtract", "math.add", "math.multiply")
@@ -226,28 +242,15 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
     override fun load(): List<Operation<T>> {
         // TODO: Type filter does not work
 
-        val ref = Reflections("net.imagej.ops")
 
         val opsFilterFile = File("minimalOps.txt")
         val allowedOps = opsFilterFile.readLines().filter { !it.startsWith("#") }
         printlnOnce("Got ${allowedOps.size} allowed ops from ${opsFilterFile.name}")
 
-        val unarySubtypes =  ref.getSubTypesOf(UnaryOp::class.java)
-        val binarySubtypes =  ref.getSubTypesOf(BinaryOp::class.java)
-
-        unarySubtypes.removeAll(binarySubtypes)
 
         printlnOnce("${unarySubtypes.size} unary classes, ${binarySubtypes.size} binary classes")
 
 
-        fun unaryOrBinary(info: OpInfo): OpArity {
-            val clazz = info.cInfo().loadDelegateClass()
-            return when {
-                clazz in unarySubtypes && clazz !in binarySubtypes -> OpArity.Unary
-                clazz in binarySubtypes && clazz !in unarySubtypes -> OpArity.Binary
-                else -> OpArity.Unknown
-            }
-        }
 
         val allOps = ops.infos().filter { it.name in allowedOps }
 //        allOps.forEach { op ->
@@ -258,55 +261,21 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
 //                    op.outputs().joinToString { it.type.simpleName })
 //        }
 
-        fun augmentParameters(op: OpInfo): List<Any> {
-            val cutoff = if(unaryOrBinary(op) == OpArity.Unary) {
-                1
-            } else {
-                2
-            }
 
-            return op.inputs().drop(cutoff).mapNotNull { input ->
-                printlnOnce("Requires parameter of ${input.type}")
-                when(input.type) {
-                    Shape::class.java -> HyperSphereShape(Random.nextLong(0, 10))
-                    RectangleShape::class.java -> RectangleShape(Random.nextInt(0, 5), Random.nextBoolean())
-                    Boolean::class.java -> Random.nextBoolean()
-                    Double::class.java -> Random.nextDouble()
-                    java.lang.Double::class.java -> Random.nextDouble()
-                    Float::class.java -> Random.nextFloat()
-                    java.lang.Float::class.java -> Random.nextFloat()
-                    Int::class.java -> Random.nextInt(0, 5)
-                    Long::class.java -> Random.nextLong(0, 5)
-                    Byte::class.java -> Random.nextInt(0, 255).toByte()
-                    NumericType::class.java -> FloatType(Random.nextFloat())
-                    RealType::class.java -> FloatType(Random.nextFloat())
-                    Localizable::class.java -> Point(Random.nextInt(-10, 10), Random.nextInt(-10, 10))
-                    DoubleArray::class.java -> doubleArrayOf(Random.nextDouble(), Random.nextDouble())
-                    OutOfBoundsFactory::class.java -> OutOfBoundsPeriodicFactory<FloatType, RandomAccessibleInterval<FloatType>>()
-
-                    // TODO: see if we can construct these in some cases.
-                    IterableInterval::class.java -> null
-                    RandomAccessibleInterval::class.java -> null
-
-                    // fall-through, show error
-                    else -> {
-                        System.err.println("Don't know how to construct ${input.type}")
-
-                        null
-                    }
-                }
-            }
-        }
 
         val unaryOps = allOps.filter {
             unaryOrBinary(it) == OpArity.Unary
             && it.inputs().size >= 1
             && it.outputs().size == 1
             && it.outputs()[0].type.isAssignableFrom(typeFilter)
-            && !it.inputs().any { i -> i.type.simpleName.contains("UnaryComputerOp") || i.type.simpleName.contains("UnaryFunctionOp") }
+            && !it.inputs().any { i -> i.type.simpleName.contains("UnaryComputerOp") || i.type.simpleName.contains("UnaryFunctionOp") || i.type.simpleName.contains("List") }
         }.map {
-            val requiresInOut = it.inputs()[0].name == "out" && it.inputs()[1].name == "in"
-            printlnOnce("UnaryOp ${it.name} has output type ${it.outputs()[0].type}/${it.outputs()[0].genericType} requiresInOut=$requiresInOut")
+            val requiresInOut = if(it.name in forcedUnary) {
+                it.inputs()[0].name == "out" && it.inputs()[1].name == "in1" && it.inputs()[2].name == "in2"
+            } else {
+                it.inputs()[0].name == "out" && it.inputs()[1].name == "in"
+            }
+            printlnOnce("UnaryOp ${it.name} has output type ${it.outputs()[0].type}/${it.outputs()[0].genericType} requiresInOut=$requiresInOut inputs=${it.inputs().joinToString { it.name }} outputs=${it.outputs().joinToString { it.name }}")
 
             UnaryOpsOperation<T>(it, augmentParameters(it), requiresInOut)
         }
@@ -314,6 +283,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
         val binaryOps = allOps.filter {
             unaryOrBinary(it) == OpArity.Binary
             && it.outputs()[0].type.isAssignableFrom(typeFilter)
+            && !it.inputs().any { i -> i.type.simpleName.contains("List") }
         }.map {
             val requiresInOut = if(it.inputs().size >= 3) {
                 it.inputs()[0].name == "out" && it.inputs()[1].name == "in1" && it.inputs()[2].name == "in2"
@@ -354,6 +324,13 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
         val ops: OpService = context.getService(OpService::class.java) as OpService
         val io = context.getService(IOService::class.java) as IOService
 
+        val ref = Reflections("net.imagej.ops")
+        val unarySubtypes = ref.getSubTypesOf(UnaryOp::class.java)
+        val binarySubtypes = ref.getSubTypesOf(BinaryOp::class.java)
+
+        val forcedUnary = listOf("morphology.dilate", "morphology.erode", "morphology.topHat")
+        val forcedBinary = emptyList<String>()
+
         fun printlnOnce(message: Any?) {
             if(!infosPrinted) {
                 println(message)
@@ -366,7 +343,96 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
             }
         }
 
+        fun unaryOrBinary(info: OpInfo): OpArity {
+            val clazz = info.cInfo().loadDelegateClass()
+            return when {
+                info.name in forcedUnary || (clazz in unarySubtypes && clazz !in binarySubtypes) -> OpArity.Unary
+                info.name in forcedBinary || (clazz in binarySubtypes && clazz !in unarySubtypes) -> OpArity.Binary
+                else -> OpArity.Unknown
+            }
+        }
+
+        fun parametersToCode(parameters: List<Any>): String {
+            val parameterString = parameters.joinToString(", ") {
+                when (it.javaClass) {
+                    HyperSphereShape::class.java -> "HyperSphereShape(${(it as HyperSphereShape).radius})"
+                    RectangleShape::class.java -> "RectangleShape(${(it as RectangleShape).span}, ${it.isSkippingCenter})"
+
+                    java.lang.Boolean::class.java -> it.toString()
+                    Boolean::class.java -> it.toString()
+
+                    Double::class.java -> it.toString()
+                    java.lang.Double::class.java -> it.toString()
+                    DoubleArray::class.java -> "doubleArrayOf(${(it as DoubleArray)[0]}, ${it[1]})"
+
+                    Float::class.java -> "${it}f"
+                    java.lang.Float::class.java -> "${it}f"
+
+                    Int::class.java -> it.toString()
+                    Long::class.java -> it.toString()
+                    Byte::class.java -> it.toString()
+
+                    NumericType::class.java -> "${(it as FloatType).get()}"
+                    RealType::class.java -> "${(it as FloatType).get()}"
+                    FloatType::class.java -> "${(it as FloatType).get()}"
+
+                    Localizable::class.java -> "Point(${(it as Point).getIntPosition(0)}, ${it.getIntPosition(1)})"
+                    OutOfBoundsFactory::class.java -> "OutOfBoundsPeriodicFactory<FloatType, RandomAccessibleInterval<FloatType>>())"
+                    OutOfBoundsPeriodicFactory::class.java -> "OutOfBoundsPeriodicFactory<FloatType, RandomAccessibleInterval<FloatType>>())"
+
+                    else -> "(don't know how to code-print: ${it.javaClass.simpleName})"
+                }
+            }
+
+            return if(parameterString.isEmpty()) {
+                ""
+            } else {
+                ", $parameterString"
+            }
+        }
+
+        fun augmentParameters(op: OpInfo): List<Any> {
+            val cutoff = if(unaryOrBinary(op) == OpArity.Unary) {
+                1
+            } else {
+                2
+            }
+
+            return op.inputs().drop(cutoff).mapIndexedNotNull { i, input ->
+                printlnOnce("Requires parameter of ${input.type}")
+                when(input.type) {
+                    Shape::class.java -> HyperSphereShape(Random.nextLong(0, 10))
+                    RectangleShape::class.java -> RectangleShape(Random.nextInt(0, 5), Random.nextBoolean())
+                    Boolean::class.java -> Random.nextBoolean()
+                    Double::class.java -> Random.nextDouble()
+                    java.lang.Double::class.java -> Random.nextDouble()
+                    Float::class.java -> Random.nextFloat()
+                    java.lang.Float::class.java -> Random.nextFloat()
+                    Int::class.java -> Random.nextInt(0, 5)
+                    Long::class.java -> Random.nextLong(0, 5)
+                    Byte::class.java -> Random.nextInt(0, 255).toByte()
+                    NumericType::class.java -> FloatType(Random.nextFloat())
+                    RealType::class.java -> FloatType(Random.nextFloat())
+                    Localizable::class.java -> Point(Random.nextInt(-10, 10), Random.nextInt(-10, 10))
+                    DoubleArray::class.java -> doubleArrayOf(Random.nextDouble(), Random.nextDouble())
+                    OutOfBoundsFactory::class.java -> OutOfBoundsPeriodicFactory<FloatType, RandomAccessibleInterval<FloatType>>()
+
+                    // TODO: see if we can construct these in some cases.
+                    IterableInterval::class.java -> null
+                    RandomAccessibleInterval::class.java -> null
+
+                    // fall-through, show error
+                    else -> {
+                        System.err.println("Don't know how to construct ${input.type} for parameter $i of ${op.name}")
+
+                        null
+                    }
+                }
+            }
+        }
+
         init {
+            unarySubtypes.removeAll(binarySubtypes)
             if (!ui.isVisible) ui.showUI()
         }
     }
