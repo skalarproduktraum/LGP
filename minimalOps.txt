@@ -1,3 +1,6 @@
+morphology.topHat
+morphology.erode
+morphology.dilate
 filter.dog
 filter.gauss
 filter.hessian
@@ -88,7 +91,7 @@ math.zero
 #threshold.localMidGreyThreshold
 #threshold.localPhansalkarThreshold
 #threshold.maxEntropy
-threshold.maxLikelihood
+#threshold.maxLikelihood
 #threshold.mean
 #threshold.minError
 #threshold.minimum
