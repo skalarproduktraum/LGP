@@ -77,6 +77,7 @@ class BinaryTournamentSelection<TProgram, TOutput : Output<TProgram>>(
     override val information = ModuleInformation("Performs Binary Tournament Selection on a population of individuals.")
 }
 
+data class SpeciationSelection(val size: Int = 2, val cutoff: Float = 0.5f)
 /**
  * A [SelectionOperator] implementation that selects individuals using Tournament Selection.
  *
@@ -92,7 +93,8 @@ class BinaryTournamentSelection<TProgram, TOutput : Output<TProgram>>(
  */
 class TournamentSelection<TProgram, TOutput : Output<TProgram>>(
     environment: Environment<TProgram, TOutput>,
-    val tournamentSize: Int
+    val tournamentSize: Int,
+    val speciation: SpeciationSelection? = null
 ) : SelectionOperator<TProgram, TOutput>(environment) {
 
     private val random = this.environment.randomState

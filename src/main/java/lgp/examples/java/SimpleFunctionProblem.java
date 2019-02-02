@@ -133,7 +133,8 @@ public class SimpleFunctionProblem extends Problem<Double, Outputs.Single<Double
                 CoreModuleType.SelectionOperator,
                 (environment) -> new TournamentSelection<>(
                         environment,
-                        2            // tournamentSize
+                        2,// tournamentSize
+                        null
                 )
         );
         modules.put(
