@@ -27,6 +27,7 @@ import net.imglib2.RandomAccessibleInterval
 import net.imglib2.img.Img
 import net.imglib2.img.array.ArrayImgFactory
 import net.imglib2.type.numeric.RealType
+import net.imglib2.type.numeric.real.DoubleType
 import net.imglib2.type.numeric.real.FloatType
 import net.imglib2.view.Views
 import org.scijava.Context
@@ -80,13 +81,13 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
             config.constantsRate = 0.5
             config.constants = listOf("0.0", "1.0", "2.0")
             config.numCalculationRegisters = 5
-            config.populationSize = 500
+            config.populationSize = 50
             config.generations = 1000
             config.numFeatures = 1
             config.microMutationRate = 0.5
             config.crossoverRate = 0.75
             config.macroMutationRate = 0.6
-            config.numOffspring = 10
+            config.numOffspring = 1
 
             return config
         }
@@ -94,8 +95,14 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
 
     private val startTime = SimpleDateFormat("yyyy-MM-dd_HH.mm.ss").format(Date())
 
+    enum class ImageMetrics {
+        TED,
+        MCC,
+        AbsoluteDifferences,
+    }
+
     private val config = this.configLoader.load()
-    private val useMCCfitness = true
+    private val fitnessMetric = ImageMetrics.TED
 
     val imageWidth = 320L
     val imageHeight = 240L
@@ -230,12 +237,37 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                     }.sum()
                 }
 
+                val fitnessTED = {
+                    val factory = ArrayImgFactory(FloatType())
+                    cases.zip(outputs).map { (case, actual) ->
+                        val raiExpected = (case.target as Targets.Single).value
+                        val raiActual = actual.value
+
+                        val dtExpected = factory.create(raiExpected.dimension(0), raiExpected.dimension(1))
+                        val dtActual = factory.create(raiActual.dimension(0), raiActual.dimension(1))
+
+                        ops.run("image.distancetransform", dtExpected, raiExpected)
+                        ops.run("image.distancetransform", dtActual, raiActual)
+
+                        val difference = ops.run("math.subtract", dtExpected, dtActual)
+                        val sum = DoubleType(0.0)
+                        ops.run("stats.sum", sum, difference) as DoubleType
+
+                        println("$difference, $sum, $dtExpected, $dtActual")
+
+                        sum.get().toFloat()/(raiActual.dimension(0)*raiActual.dimension(1))
+                    }.sum()
+                }
+
                 val fitnessMatthewsCorrelationCoefficient = {
                     cases.zip(outputs).map { (case, actual) ->
                         var trueNegatives = 0L
                         var falseNegatives = 0L
                         var truePositives = 0L
                         var falsePositives = 0L
+
+                        var prev = Float.NaN
+                        var totalDifference = 0.0f
 
                         val raiExpected = (case.target as Targets.Single).value
                         val raiActual = actual.value
@@ -249,6 +281,14 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
 
                             val actualValue = (cursorActual.get() as FloatType).get()
                             val expectedValue = (cursorExpected.get() as FloatType).get()
+
+                            if(prev.isNaN()) {
+                                prev = actualValue
+                            }
+
+                            totalDifference += (prev - actualValue).absoluteValue
+
+                            prev = actualValue
 
                             if(expectedValue < 254.9f && actualValue < 1.0f) {
                                 trueNegatives++
@@ -275,7 +315,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                         }
 
                         val mcc = (truePositives * trueNegatives - falsePositives * falseNegatives)/mccDenom
-                        println("MCC=$mcc, TP=$truePositives, FP=$falsePositives, TN=$trueNegatives, FN=$falseNegatives")
+                        println("MCC=$mcc, TP=$truePositives, FP=$falsePositives, TN=$trueNegatives, FN=$falseNegatives, delta=$totalDifference")
 
                         if(1.0f - mcc.toFloat().absoluteValue < 0.5f) {
                             val ds = DefaultDataset(context, ImgPlus.wrap(raiExpected as Img<RealType<*>>))
@@ -287,17 +327,22 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                             io.save(ds, "$startTime/$timestamp-expected.tiff")
                         }
 
-                        1.0f - mcc.toFloat().absoluteValue
+                        if(totalDifference < 10.0f) {
+                            1.0f
+                        } else {
+                            1.0f - mcc.toFloat().absoluteValue
+                        }
                     }.sum()
                 }
 
                 val fitness = try {
-                    if(useMCCfitness) {
-                        fitnessMatthewsCorrelationCoefficient.invoke()
-                    } else {
-                        fitnessAbsoluteDifferences.invoke()
+                    when(fitnessMetric) {
+                        ImageMetrics.TED -> fitnessTED.invoke()
+                        ImageMetrics.MCC -> fitnessMatthewsCorrelationCoefficient.invoke()
+                        ImageMetrics.AbsoluteDifferences -> fitnessAbsoluteDifferences.invoke()
                     }
                 } catch (e: Exception) {
+                    println("Failed Fitness evaluation: ${e.toString()}")
                     Float.NEGATIVE_INFINITY
                 }
 
@@ -328,7 +373,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                 )
             },
             CoreModuleType.SelectionOperator to { environment ->
-                TournamentSelection(environment, tournamentSize = 8)
+                TournamentSelection(environment, tournamentSize = 8, speciation = SpeciationSelection(2, 0.5f))
             },
             CoreModuleType.RecombinationOperator to { environment ->
                 LinearCrossover(
