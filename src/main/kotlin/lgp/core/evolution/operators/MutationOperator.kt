@@ -10,6 +10,8 @@ import lgp.core.modules.Module
 import lgp.core.modules.ModuleInformation
 import lgp.core.program.Output
 import lgp.core.program.Program
+import lgp.core.program.instructions.Operation
+import lgp.core.program.instructions.ParameterMutateable
 import java.util.Random
 
 /**
@@ -255,7 +257,13 @@ class MicroMutationOperator<TProgram, TOutput : Output<TProgram>>(
             }
             MicroMutationType.Operator -> {
                 // 4. If operator mutation then select a different instruction operation randomly
-                val operation = random.choice(this.operations)
+                val current = instruction.operation
+                val operation = if(random.nextDouble() > 0.5 && current is ParameterMutateable<*>) {
+                    println("Mutating parameters of $current")
+                    current.mutateParameters() as Operation<TProgram>
+                } else {
+                    random.choice(this.operations)
+                }
 
                 // Assure that the arity of the new operation matches with the number of operands the instruction has.
                 // If the arity of the operations is the same, then nothing needs to be done.

@@ -48,3 +48,7 @@ abstract class Operation<T>(val arity: Arity, val func: Function<T>) : Module {
      */
     abstract fun toString(operands: List<RegisterIndex>, destination: RegisterIndex): String
 }
+
+interface ParameterMutateable<T> {
+    fun mutateParameters(): Operation<T>
+}

@@ -1,14 +1,11 @@
 package lgp.lib
 
 import lgp.core.environment.Environment
-import lgp.core.program.instructions.Instruction
-import lgp.core.program.instructions.InstructionGenerator
-import lgp.core.program.instructions.Operation
-import lgp.core.program.instructions.RegisterIndex
 import lgp.core.evolution.operators.choice
 import lgp.core.program.registers.*
 import lgp.core.modules.ModuleInformation
 import lgp.core.program.Output
+import lgp.core.program.instructions.*
 
 /**
  * Built-in offering of the ``InstructionGenerator`` interface.
@@ -40,7 +37,13 @@ class BaseInstructionGenerator<TProgram, TOutput : Output<TProgram>> : Instructi
         val output = this.getRandomInputAndCalculationRegisters(1).first()
 
         // Choose a random operator
-        val operation = random.choice(this.operationPool)
+        val choice = random.choice(this.operationPool)
+
+        val operation = if(choice is ParameterMutateable<*>) {
+            choice.mutateParameters() as Operation<TProgram>
+        } else {
+            choice
+        }
 
         // Determine whether to use a constant register
         val shouldUseConstant = random.nextFloat().toDouble() < this.environment.configuration.constantsRate
