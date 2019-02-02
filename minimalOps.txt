@@ -13,6 +13,7 @@ filter.sobel
 filter.variance
 image.fill
 image.normalize
+image.invert
 math.abs
 math.add
 math.and

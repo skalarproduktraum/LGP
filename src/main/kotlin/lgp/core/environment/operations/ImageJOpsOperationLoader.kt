@@ -23,8 +23,10 @@ import net.imglib2.img.display.imagej.ImageJFunctions
 import net.imglib2.outofbounds.OutOfBoundsFactory
 import net.imglib2.outofbounds.OutOfBoundsPeriodicFactory
 import net.imglib2.type.logic.BitType
+import net.imglib2.type.numeric.IntegerType
 import net.imglib2.type.numeric.NumericType
 import net.imglib2.type.numeric.RealType
+import net.imglib2.type.numeric.integer.IntType
 import net.imglib2.type.numeric.real.FloatType
 import net.imglib2.view.Views
 import org.reflections.Reflections
@@ -372,9 +374,11 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
                     Long::class.java -> it.toString()
                     Byte::class.java -> it.toString()
 
-                    NumericType::class.java -> "${(it as FloatType).get()}"
-                    RealType::class.java -> "${(it as FloatType).get()}"
                     FloatType::class.java -> "${(it as FloatType).get()}"
+                    IntegerType::class.java -> "${(it as IntType).get()}"
+                    IntType::class.java -> "${(it as IntType).get()}"
+                    RealType::class.java -> "${(it as FloatType).get()}"
+                    NumericType::class.java -> "${(it as FloatType).get()}"
 
                     Localizable::class.java -> "Point(${(it as Point).getIntPosition(0)}, ${it.getIntPosition(1)})"
                     OutOfBoundsFactory::class.java -> "OutOfBoundsPeriodicFactory<FloatType, RandomAccessibleInterval<FloatType>>())"
@@ -413,6 +417,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
                     Byte::class.java -> Random.nextInt(0, 255).toByte()
                     NumericType::class.java -> FloatType(Random.nextFloat())
                     RealType::class.java -> FloatType(Random.nextFloat())
+                    IntegerType::class.java -> IntType(Random.nextInt(0, 255))
                     Localizable::class.java -> Point(Random.nextInt(-10, 10), Random.nextInt(-10, 10))
                     DoubleArray::class.java -> doubleArrayOf(Random.nextDouble(), Random.nextDouble())
                     OutOfBoundsFactory::class.java -> OutOfBoundsPeriodicFactory<FloatType, RandomAccessibleInterval<FloatType>>()
