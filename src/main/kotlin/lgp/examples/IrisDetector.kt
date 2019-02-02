@@ -37,6 +37,10 @@ import org.scijava.service.SciJavaService
 import org.scijava.thread.ThreadService
 import org.scijava.ui.UIService
 import java.io.File
+import java.io.FileOutputStream
+import java.io.PrintStream
+import java.text.SimpleDateFormat
+import java.util.*
 import kotlin.math.absoluteValue
 import kotlin.math.sqrt
 
@@ -66,10 +70,10 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
         override fun load(): Configuration {
             val config = Configuration()
 
-            config.initialMinimumProgramLength = 10
-            config.initialMaximumProgramLength = 30
+            config.initialMinimumProgramLength = 5
+            config.initialMaximumProgramLength = 10
             config.minimumProgramLength = 5
-            config.maximumProgramLength = 50
+            config.maximumProgramLength = 20
             config.operations = listOf(
                 "lgp.lib.operations.Addition",
                 "lgp.lib.operations.Subtraction",
@@ -77,11 +81,12 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
             )
             config.constantsRate = 0.5
             config.constants = listOf("0.0", "1.0", "2.0")
-            config.numCalculationRegisters = 4
+            config.numCalculationRegisters = 5
             config.populationSize = 500
             config.generations = 1000
             config.numFeatures = 1
-            config.microMutationRate = 0.4
+            config.microMutationRate = 0.5
+            config.crossoverRate = 0.75
             config.macroMutationRate = 0.6
             config.numOffspring = 10
 
@@ -89,7 +94,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
         }
     }
 
-    private val startTime = System.currentTimeMillis()
+    private val startTime = SimpleDateFormat("yyyy-MM-dd_HH.mm.ss").format(Date())
 
     private val config = this.configLoader.load()
     private val useMCCfitness = true
@@ -247,19 +252,19 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                             val actualValue = (cursorActual.get() as FloatType).get()
                             val expectedValue = (cursorExpected.get() as FloatType).get()
 
-                            if(expectedValue < 254.9f && actualValue < 254.9f) {
+                            if(expectedValue < 254.9f && actualValue < 1.0f) {
                                 trueNegatives++
                             }
 
-                            if(expectedValue > 254.9f && actualValue < 254.9f) {
+                            if(expectedValue > 254.9f && actualValue < 1.0f) {
                                 falseNegatives++
                             }
 
-                            if(expectedValue > 254.9f && actualValue > 254.9f) {
+                            if(expectedValue > 254.9f && actualValue >= 1.0f) {
                                 truePositives++
                             }
 
-                            if(expectedValue < 254.9f && actualValue > 254.9f) {
+                            if(expectedValue < 254.9f && actualValue >= 1.0f) {
                                 falsePositives++
                             }
                         }
@@ -273,6 +278,17 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
 
                         val mcc = (truePositives * trueNegatives - falsePositives * falseNegatives)/mccDenom
                         println("MCC=$mcc, TP=$truePositives, FP=$falsePositives, TN=$trueNegatives, FN=$falseNegatives")
+
+                        if(1.0f - mcc.toFloat().absoluteValue < 0.5f) {
+                            val ds = DefaultDataset(context, ImgPlus.wrap(raiExpected as Img<RealType<*>>))
+                            val dsActual = DefaultDataset(context, ImgPlus.wrap(raiActual as Img<RealType<*>>))
+                            val timestamp = System.currentTimeMillis()
+                            val filename = "$startTime/$timestamp-actual-fitness=${1.0f-mcc.toFloat().absoluteValue}.tiff"
+                            println("Saving actual to $filename")
+                            io.save(dsActual, filename)
+                            io.save(ds, "$startTime/$timestamp-expected.tiff")
+                        }
+
                         1.0f - mcc.toFloat().absoluteValue
                     }.sum()
                 }
@@ -314,7 +330,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                 )
             },
             CoreModuleType.SelectionOperator to { environment ->
-                TournamentSelection(environment, tournamentSize = 2)
+                TournamentSelection(environment, tournamentSize = 8)
             },
             CoreModuleType.RecombinationOperator to { environment ->
                 LinearCrossover(
@@ -385,7 +401,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
             }
             */
 
-            val runner = DistributedTrainer(environment, model, runs = 2)
+            val runner = DistributedTrainer(environment, model, runs = 4)
 
             return runBlocking {
                 val job = runner.trainAsync(
@@ -408,7 +424,16 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
     }
 
     init {
-       File("$startTime").mkdir()
+       File(startTime).mkdir()
+
+        val logFile = File("$startTime/run.log")
+        val logOutput = PrintStream(FileOutputStream(logFile, true))
+
+        val stdout = TeeStream(System.out, logOutput)
+        val stderr = TeeStream(System.err, logOutput)
+
+        System.setOut(stdout)
+        System.setErr(stderr)
     }
 
     companion object {
@@ -423,6 +448,22 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
         )
         val ops = context.getService(OpService::class.java) as OpService
         val io = context.getService(IOService::class.java) as IOService
+    }
+}
+
+class TeeStream(out1: PrintStream, internal var output: PrintStream) : PrintStream(out1) {
+    override fun write(buf: ByteArray, off: Int, len: Int) {
+        try {
+            super.write(buf, off, len)
+            output.write(buf, off, len)
+        } catch (e: Exception) {
+        }
+
+    }
+
+    override fun flush() {
+        super.flush()
+        output.flush()
     }
 }
 
