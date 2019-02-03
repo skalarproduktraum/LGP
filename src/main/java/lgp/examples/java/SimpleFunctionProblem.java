@@ -224,7 +224,7 @@ public class SimpleFunctionProblem extends Problem<Double, Outputs.Single<Double
     }
 
     public void initialiseModel() {
-        this.model = new Models.SteadyState<>(this.environment);
+        this.model = new Models.SteadyState<>(this.environment, Float.MAX_VALUE);
     }
 
     @NotNull
