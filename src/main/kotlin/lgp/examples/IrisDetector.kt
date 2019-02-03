@@ -98,11 +98,12 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
     enum class ImageMetrics {
         TED,
         MCC,
+        TEDandMCC,
         AbsoluteDifferences,
     }
 
     private val config = this.configLoader.load()
-    private val fitnessMetric = ImageMetrics.TED
+    private val fitnessMetric = ImageMetrics.TEDandMCC
 
     val imageWidth = 320L
     val imageHeight = 240L
@@ -199,6 +200,15 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
 
     override val defaultValueProvider = DefaultValueProviders.constantValueProvider(defaultImage)
 
+    val cache = HashMap<Any, Any>()
+
+    fun intervalToFile(ii: IterableInterval<*>, filename: String) {
+        val ds = DefaultDataset(context, ImgPlus.wrap(ii as Img<RealType<*>>))
+
+        println("Saving $ii to $filename")
+        io.save(ds, filename)
+    }
+
     override val fitnessFunctionProvider = {
         val ff: SingleOutputFitnessFunction<IterableInterval<*>> = object : SingleOutputFitnessFunction<IterableInterval<*>>() {
 
@@ -243,19 +253,28 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                         val raiExpected = (case.target as Targets.Single).value
                         val raiActual = actual.value
 
-                        val dtExpected = factory.create(raiExpected.dimension(0), raiExpected.dimension(1))
-                        val dtActual = factory.create(raiActual.dimension(0), raiActual.dimension(1))
+                        val dtExpected = cache.getOrPut(raiExpected) {
+                            val convertedExpected = ops.run("convert.bit", raiExpected)
+                            val dtExpected = factory.create(raiExpected.dimension(0), raiExpected.dimension(1))
+                            ops.run("image.distancetransform", dtExpected, convertedExpected)
 
-                        ops.run("image.distancetransform", dtExpected, raiExpected)
-                        ops.run("image.distancetransform", dtActual, raiActual)
+                            dtExpected
+                        }
+
+                        val convertedActual = ops.run("convert.bit", raiActual)
+                        val dtActual = ops.run("image.distancetransform", convertedActual)
 
                         val difference = ops.run("math.subtract", dtExpected, dtActual)
-                        val sum = DoubleType(0.0)
-                        ops.run("stats.sum", sum, difference) as DoubleType
+//                        val sum = DoubleType(0.0)
+                        val sum = ops.run("stats.sum", difference) as DoubleType
+//                        ops.run("stats.sum", sum, difference) as DoubleType
 
-                        println("$difference, $sum, $dtExpected, $dtActual")
+//                        val timestamp = System.currentTimeMillis()
+//                        intervalToFile(dtExpected as IterableInterval<*>, "$startTime/$timestamp-expected.tiff")
+//                        intervalToFile(dtActual as IterableInterval<*>, "$startTime/$timestamp-actual.tiff")
+//                        intervalToFile(difference as IterableInterval<*> , "$startTime/$timestamp-difference.tiff")
 
-                        sum.get().toFloat()/(raiActual.dimension(0)*raiActual.dimension(1))
+                        sum.get().toFloat().absoluteValue/(raiActual.dimension(0)*raiActual.dimension(1))
                     }.sum()
                 }
 
@@ -339,6 +358,13 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                     when(fitnessMetric) {
                         ImageMetrics.TED -> fitnessTED.invoke()
                         ImageMetrics.MCC -> fitnessMatthewsCorrelationCoefficient.invoke()
+                        ImageMetrics.TEDandMCC -> {
+                            val mcc = fitnessMatthewsCorrelationCoefficient.invoke()
+                            val ted = fitnessTED.invoke()
+
+                            println("MCC = ${mcc/cases.size}")
+                            ted
+                        }
                         ImageMetrics.AbsoluteDifferences -> fitnessAbsoluteDifferences.invoke()
                     }
                 } catch (e: Exception) {
