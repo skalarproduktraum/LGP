@@ -133,3 +133,7 @@ gradle-app.setting
 
 docs/build
 docs/guide
+
+# runs
+/15*/
+/2019-*/
