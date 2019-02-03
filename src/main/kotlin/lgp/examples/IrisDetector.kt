@@ -81,7 +81,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
             config.constantsRate = 0.5
             config.constants = listOf("0.0", "1.0", "2.0")
             config.numCalculationRegisters = 5
-            config.populationSize = 50
+            config.populationSize = 500
             config.generations = 1000
             config.numFeatures = 1
             config.microMutationRate = 0.5
@@ -103,7 +103,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
     }
 
     private val config = this.configLoader.load()
-    private val fitnessMetric = ImageMetrics.TEDandMCC
+    private val fitnessMetric = ImageMetrics.MCC
 
     val imageWidth = 320L
     val imageHeight = 240L
@@ -287,17 +287,22 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
 
                         var prev = Float.NaN
                         var totalDifference = 0.0f
+                        var totalDifferenceOriginal = 0.0f
 
+                        val raiOriginal = (case.features.features.first()).value
                         val raiExpected = (case.target as Targets.Single).value
                         val raiActual = actual.value
 
+                        val cursorOriginal = Views.iterable(raiOriginal as RandomAccessibleInterval<*>).localizingCursor()
                         val cursorExpected = Views.iterable(raiExpected as RandomAccessibleInterval<*>).localizingCursor()
                         val cursorActual = Views.iterable(raiActual as RandomAccessibleInterval<*>).localizingCursor()
 
-                        while(cursorActual.hasNext() && cursorExpected.hasNext()) {
+                        while(cursorActual.hasNext() && cursorExpected.hasNext() && cursorOriginal.hasNext()) {
+                            cursorOriginal.fwd()
                             cursorActual.fwd()
                             cursorExpected.fwd()
 
+                            val originalValue = (cursorOriginal.get() as FloatType).get()
                             val actualValue = (cursorActual.get() as FloatType).get()
                             val expectedValue = (cursorExpected.get() as FloatType).get()
 
@@ -306,6 +311,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                             }
 
                             totalDifference += (prev - actualValue).absoluteValue
+                            totalDifferenceOriginal += (actualValue - originalValue).absoluteValue
 
                             prev = actualValue
 
@@ -334,7 +340,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                         }
 
                         val mcc = (truePositives * trueNegatives - falsePositives * falseNegatives)/mccDenom
-                        println("MCC=$mcc, TP=$truePositives, FP=$falsePositives, TN=$trueNegatives, FN=$falseNegatives, delta=$totalDifference")
+                        println("MCC=$mcc, TP=$truePositives, FP=$falsePositives, TN=$trueNegatives, FN=$falseNegatives, delta=$totalDifference, delta_o=$totalDifferenceOriginal")
 
                         if(1.0f - mcc.toFloat().absoluteValue < 0.5f) {
                             val ds = DefaultDataset(context, ImgPlus.wrap(raiExpected as Img<RealType<*>>))
@@ -346,7 +352,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                             io.save(ds, "$startTime/$timestamp-expected.tiff")
                         }
 
-                        if(totalDifference < 10.0f) {
+                        if(totalDifference < 10.0f || totalDifferenceOriginal < 10.0f) {
                             1.0f
                         } else {
                             1.0f - mcc.toFloat().absoluteValue
@@ -448,7 +454,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
 
     override fun initialiseModel() {
 //        this.model = Models.IslandMigration(this.environment, Models.IslandMigration.IslandMigrationOptions(8, 4, 4))
-        this.model = Models.SteadyState(this.environment)
+        this.model = Models.SteadyState(this.environment, minimalInitialFitness = 0.999999f)
     }
 
     override fun solve(): IrisDetectorSolution {
