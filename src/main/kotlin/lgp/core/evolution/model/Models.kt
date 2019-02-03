@@ -59,7 +59,8 @@ object Models {
      * (Brameier, M., Banzhaf, W. 2001).
      */
     class SteadyState<TProgram, TOutput : Output<TProgram>>(
-        environment: Environment<TProgram, TOutput>
+        environment: Environment<TProgram, TOutput>,
+        val minimalInitialFitness: Float = Float.MAX_VALUE
     ) : EvolutionModel<TProgram, TOutput>(environment) {
 
         private val select: SelectionOperator<TProgram, TOutput> = this.environment.registeredModule(
@@ -92,6 +93,23 @@ object Models {
                     .toMutableList()
         }
 
+        fun purgeAndReplenishIndividuals(evaluations: MutableList<Evaluation<TProgram, TOutput>>, dataset: Dataset<TProgram>, generation: Int = -1) {
+            println("Removing individuals with fitness > $minimalInitialFitness in generation $generation")
+            val removed = evaluations.removeIf { it.fitness > minimalInitialFitness }
+            this.individuals.removeIf { it.fitness > minimalInitialFitness }
+            if(removed) {
+                println("Removed ${this.environment.configuration.populationSize - this.individuals.size} unfit individuals in generation $generation")
+                val programGenerator: ProgramGenerator<TProgram, TOutput> = this.environment.registeredModule(CoreModuleType.ProgramGenerator)
+                val newIndividuals = programGenerator
+                    .next()
+                    .take(this.environment.configuration.populationSize - this.individuals.size)
+                this.individuals.addAll(newIndividuals)
+                evaluations.addAll(newIndividuals.map { individual ->
+                    this.fitnessEvaluator.evaluate(individual, dataset, this.environment)
+                })
+            }
+        }
+
         override fun train(dataset: Dataset<TProgram>): EvolutionResult<TProgram, TOutput> {
             val rg = this.environment.randomState
 
@@ -99,10 +117,13 @@ object Models {
             // 1. Initialise a population of random programs
             this.initialise()
 
+            println("Running initial evaluations")
             // Determine the initial fitness of the individuals in the population
             val initialEvaluations = this.individuals.map { individual ->
                 this.fitnessEvaluator.evaluate(individual, dataset, this.environment)
-            }.toList()
+            }.toMutableList()
+
+            purgeAndReplenishIndividuals(initialEvaluations, dataset)
 
             var best = initialEvaluations.sortedBy(Evaluation<TProgram, TOutput>::fitness).first()
             this.bestProgram = best.individual
@@ -110,6 +131,7 @@ object Models {
             val statistics = mutableListOf<EvolutionStatistics>()
 
             (0 until this.environment.configuration.generations).forEach { gen ->
+                println("Evolving generation $gen")
                 // Stop early whenever we can.
                 if (best.fitness <= this.environment.configuration.stoppingCriterion) {
                     // Make sure to add at least one set of statistics.
@@ -145,7 +167,11 @@ object Models {
                 // TODO: Do validation step
                 val evaluations = children.map { individual ->
                     this.fitnessEvaluator.evaluate(individual, dataset, this.environment)
-                }.sortedBy(Evaluation<TProgram, TOutput>::fitness)
+                }.toMutableList()
+
+                purgeAndReplenishIndividuals(evaluations, dataset, gen)
+
+                evaluations.sortedBy(Evaluation<TProgram, TOutput>::fitness)
 
                 val bestChild = evaluations.first()
 
@@ -221,11 +247,11 @@ object Models {
         override val information = ModuleInformation("Algorithm 2.1 (LGP Algorithm)")
 
         override fun copy(): SteadyState<TProgram, TOutput> {
-            return SteadyState(this.environment)
+            return SteadyState(this.environment, minimalInitialFitness)
         }
 
         override fun deepCopy(): EvolutionModel<TProgram, TOutput> {
-            return SteadyState(this.environment.copy())
+            return SteadyState(this.environment.copy(), minimalInitialFitness)
         }
     }
 
