@@ -69,10 +69,10 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
         override fun load(): Configuration {
             val config = Configuration()
 
-            config.initialMinimumProgramLength = 5
-            config.initialMaximumProgramLength = 10
-            config.minimumProgramLength = 5
-            config.maximumProgramLength = 20
+            config.initialMinimumProgramLength = 2
+            config.initialMaximumProgramLength = 6
+            config.minimumProgramLength = 10
+            config.maximumProgramLength = 50
             config.operations = listOf(
                 "lgp.lib.operations.Addition",
                 "lgp.lib.operations.Subtraction",
@@ -80,14 +80,14 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
             )
             config.constantsRate = 0.5
             config.constants = listOf("0.0", "1.0", "2.0")
-            config.numCalculationRegisters = 5
-            config.populationSize = 500
+            config.numCalculationRegisters = 4
+            config.populationSize = 100
             config.generations = 1000
             config.numFeatures = 1
-            config.microMutationRate = 0.5
+            config.microMutationRate = 0.7
             config.crossoverRate = 0.75
-            config.macroMutationRate = 0.6
-            config.numOffspring = 1
+            config.macroMutationRate = 0.7
+            config.numOffspring = 5
 
             return config
         }
@@ -295,7 +295,11 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
 
                         val cursorOriginal = Views.iterable(raiOriginal as RandomAccessibleInterval<*>).localizingCursor()
                         val cursorExpected = Views.iterable(raiExpected as RandomAccessibleInterval<*>).localizingCursor()
-                        val cursorActual = Views.iterable(raiActual as RandomAccessibleInterval<*>).localizingCursor()
+//                        val cursorActual = Views.iterable(raiActual as RandomAccessibleInterval<*>).localizingCursor()
+
+                        val thresholded = ops.run("threshold.maxEntropy", raiActual)
+                        val converted = ops.run("convert.float32", thresholded) as IterableInterval<*>
+                        val cursorActual = Views.iterable(converted as RandomAccessibleInterval<*>).localizingCursor()
 
                         while(cursorActual.hasNext() && cursorExpected.hasNext() && cursorOriginal.hasNext()) {
                             cursorOriginal.fwd()
@@ -340,14 +344,14 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                         }
 
                         val mcc = (truePositives * trueNegatives - falsePositives * falseNegatives)/mccDenom
-                        println("MCC=$mcc, TP=$truePositives, FP=$falsePositives, TN=$trueNegatives, FN=$falseNegatives, delta=$totalDifference, delta_o=$totalDifferenceOriginal")
+                        println("${Thread.currentThread().name}:MCC=$mcc, TP=$truePositives, FP=$falsePositives, TN=$trueNegatives, FN=$falseNegatives, delta=$totalDifference, delta_o=$totalDifferenceOriginal")
 
-                        if(1.0f - mcc.toFloat().absoluteValue < 0.5f) {
+                        if(1.0f - mcc.toFloat().absoluteValue < 0.2f) {
                             val ds = DefaultDataset(context, ImgPlus.wrap(raiExpected as Img<RealType<*>>))
-                            val dsActual = DefaultDataset(context, ImgPlus.wrap(raiActual as Img<RealType<*>>))
+                            val dsActual = DefaultDataset(context, ImgPlus.wrap(converted as Img<RealType<*>>))
                             val timestamp = System.currentTimeMillis()
                             val filename = "$startTime/$timestamp-actual-fitness=${1.0f-mcc.toFloat().absoluteValue}.tiff"
-                            println("Saving actual to $filename")
+                            println("${Thread.currentThread().name}:Saving actual to $filename")
                             io.save(dsActual, filename)
                             io.save(ds, "$startTime/$timestamp-expected.tiff")
                         }
@@ -368,13 +372,13 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                             val mcc = fitnessMatthewsCorrelationCoefficient.invoke()
                             val ted = fitnessTED.invoke()
 
-                            println("MCC = ${mcc/cases.size}")
+                            println("${Thread.currentThread().name}:MCC = ${mcc/cases.size}")
                             ted
                         }
                         ImageMetrics.AbsoluteDifferences -> fitnessAbsoluteDifferences.invoke()
                     }
                 } catch (e: Exception) {
-                    println("Failed Fitness evaluation: ${e.toString()}")
+                    println("${Thread.currentThread().name}:Failed Fitness evaluation: ${e.toString()}")
                     Float.NEGATIVE_INFINITY
                 }
 
@@ -383,7 +387,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                     else               -> FitnessFunctions.UNDEFINED_FITNESS
                 }
 
-                println("Fitness = $f")
+                println("${Thread.currentThread().name}:Fitness = $f")
                 return f
             }
         }
@@ -453,8 +457,9 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
     }
 
     override fun initialiseModel() {
-//        this.model = Models.IslandMigration(this.environment, Models.IslandMigration.IslandMigrationOptions(8, 4, 4))
-        this.model = Models.SteadyState(this.environment, minimalInitialFitness = 0.999999f)
+        this.model = Models.IslandMigration(this.environment,
+            Models.IslandMigration.IslandMigrationOptions(4, 2, 20))
+//        this.model = Models.SteadyState(this.environment)
     }
 
     override fun solve(): IrisDetectorSolution {
