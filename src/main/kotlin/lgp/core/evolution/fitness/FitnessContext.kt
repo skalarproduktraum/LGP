@@ -61,6 +61,8 @@ class SingleOutputFitnessContext<TData>(
         // Make sure the programs effective instructions have been found
         program.findEffectiveProgram()
 
+        println("${Thread.currentThread().name}: Evaluating fitness of\n${program.toString().split("\n").joinToString("\n") { "${Thread.currentThread().name}: $it" }}")
+
         // Collect the results of the program for each fitness case.
         val outputs = fitnessCases.map { case ->
             // Make sure the registers are in a default state

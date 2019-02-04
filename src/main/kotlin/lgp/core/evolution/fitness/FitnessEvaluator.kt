@@ -43,8 +43,6 @@ class FitnessEvaluator<TData, TOutput : Output<TData>> {
         // Request access to a fitness context implementation.
         val context: FitnessContext<TData, TOutput> = environment.registeredModule(CoreModuleType.FitnessContext)
 
-        println("${Thread.currentThread().name}: Evaluating fitness of $program")
-
         // Use the context to evaluate this programs fitness
         val fitness = context.fitness(
                 program = program,
