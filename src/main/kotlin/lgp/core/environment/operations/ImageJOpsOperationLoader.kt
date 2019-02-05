@@ -318,7 +318,6 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
         var infosPrinted = false
         val context = IrisDetectorProblem.context
 
-        val ui: UIService = context.getService(UIService::class.java) as UIService
         val ops: OpService = context.getService(OpService::class.java) as OpService
         val io = context.getService(IOService::class.java) as IOService
 
@@ -435,7 +434,6 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
 
         init {
             unarySubtypes.removeAll(binarySubtypes)
-//            if (!ui.isVisible) ui.showUI()
         }
     }
 

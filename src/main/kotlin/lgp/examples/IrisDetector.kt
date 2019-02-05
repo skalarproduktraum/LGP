@@ -34,7 +34,6 @@ import org.scijava.Context
 import org.scijava.io.IOService
 import org.scijava.service.SciJavaService
 import org.scijava.thread.ThreadService
-import org.scijava.ui.UIService
 import java.io.File
 import java.io.FileOutputStream
 import java.io.PrintStream
@@ -521,7 +520,6 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
     companion object {
         val context = Context(
             IOService::class.java,
-            UIService::class.java,
             OpService::class.java,
             SciJavaService::class.java,
             ImageJService::class.java,
