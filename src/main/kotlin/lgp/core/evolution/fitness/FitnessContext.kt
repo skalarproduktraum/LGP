@@ -61,29 +61,34 @@ class SingleOutputFitnessContext<TData>(
         // Make sure the programs effective instructions have been found
         program.findEffectiveProgram()
 
-        println("${Thread.currentThread().name}: Evaluating fitness of\n${program.toString().split("\n").joinToString("\n") { "${Thread.currentThread().name}: $it" }}")
+//        println("${Thread.currentThread().name}: Evaluating fitness of\n${program.toString().split("\n").joinToString("\n") { "${Thread.currentThread().name}: $it" }}")
 
-        // Collect the results of the program for each fitness case.
-        val outputs = fitnessCases.map { case ->
-            // Make sure the registers are in a default state
-            program.registers.reset()
+        if(program.effectiveInstructions.size > 0) {
+            // Collect the results of the program for each fitness case.
+            val outputs = fitnessCases.map { case ->
+                // Make sure the registers are in a default state
+                program.registers.reset()
 
-            // Load the case
-            program.registers.writeInstance(case.features)
+                // Load the case
+                program.registers.writeInstance(case.features)
 
-            // Run the program...
-            program.execute()
+                // Run the program...
+                program.execute()
 
-            // ... and gather a result from the programs first specified output register.
-            // We will ignore any other output registers, under the assumption that if this
-            // fitness context is being used, the other registers don't matter.
-            val output = program.outputRegisterIndices.first()
+                // ... and gather a result from the programs first specified output register.
+                // We will ignore any other output registers, under the assumption that if this
+                // fitness context is being used, the other registers don't matter.
+                val output = program.outputRegisterIndices.first()
 
-            Outputs.Single(program.registers[output])
+                Outputs.Single(program.registers[output])
+            }
+
+            // Copy the fitness to the program for later accesses
+            program.fitness = this.fitnessFunction(outputs, fitnessCases)
+        } else {
+            println("${Thread.currentThread().name}:Fitness = 100.0")
+            program.fitness = 100.0
         }
-
-        // Copy the fitness to the program for later accesses
-        program.fitness = this.fitnessFunction(outputs, fitnessCases)
 
         return program.fitness
     }
