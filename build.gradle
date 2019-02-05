@@ -123,3 +123,8 @@ task printVersion {
         println project.version
     }
 }
+
+task copyToLib(type: Copy) {
+    into "$buildDir/output/libs"
+    from configurations.runtime
+}
