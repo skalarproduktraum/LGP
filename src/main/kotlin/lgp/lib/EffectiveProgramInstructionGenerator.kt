@@ -31,7 +31,13 @@ class EffectiveProgramInstructionGenerator<TProgram, TOutput : Output<TProgram>>
         val output = this.getRandomInputAndCalculationRegisters(1).first()
 
         // Choose a random operator
-        val operation = random.choice(this.operationPool)
+        val choice = random.choice(this.operationPool)
+
+        val operation = if(choice is ParameterMutateable<*>) {
+            choice.mutateParameters() as Operation<TProgram>
+        } else {
+            choice
+        }
 
         // Determine whether to use a constant register
         val shouldUseConstant = random.nextFloat().toDouble() < this.environment.configuration.constantsRate
@@ -75,7 +81,7 @@ class EffectiveProgramInstructionGenerator<TProgram, TOutput : Output<TProgram>>
             else -> effectiveRegisters
         }
 
-        val operation = when {
+        val newOperation = when {
             branch -> {
                 this.random.choice(this.operationPool.filter { operation ->
                     operation is BranchOperation<TProgram>
@@ -84,6 +90,12 @@ class EffectiveProgramInstructionGenerator<TProgram, TOutput : Output<TProgram>>
             else -> {
                 this.random.choice(this.operationPool)
             }
+        }
+
+        val operation = if(newOperation is ParameterMutateable<*>) {
+            newOperation.mutateParameters() as Operation<TProgram>
+        } else {
+            newOperation
         }
 
         val shouldUseConstant = random.nextFloat().toDouble() < this.environment.configuration.constantsRate
