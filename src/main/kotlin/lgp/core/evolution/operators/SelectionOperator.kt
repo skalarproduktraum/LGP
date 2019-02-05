@@ -134,7 +134,7 @@ internal fun <TProgram, TOutput : Output<TProgram>> tournament(
     individuals: MutableList<Program<TProgram, TOutput>>,
     random: Random,
     tournamentSize: Int,
-    replacement: Boolean = false
+    replacement: Boolean = true
 ): TournamentResult<TProgram, TOutput> {
 
     var winner = random.choice(individuals)

@@ -31,7 +31,7 @@ import kotlin.random.Random
 
 class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<String> = emptyList(), opService: OpService? = null) : OperationLoader<T> {
 
-    class UnaryOpsOperation<T>(val opInfo: OpInfo, val parameters: List<Any> = emptyList(), val requiresInOut: Boolean = false) : UnaryOperation<T>({ args: Arguments<T> ->
+    class UnaryOpsOperation<T>(val opInfo: OpInfo, override val parameters: List<Any> = emptyList(), val requiresInOut: Boolean = false) : UnaryOperation<T>({ args: Arguments<T> ->
         try {
             val start = System.nanoTime()
             printlnMaybe("${Thread.currentThread().name}: Running unary op ${opInfo.name} (${opInfo.inputs().joinToString { it.type.simpleName }} -> ${opInfo.outputs().joinToString { it.type.simpleName }}), parameters: ${parameters.joinToString(",")}")
@@ -128,7 +128,10 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
         }
 
         override fun mutateParameters(): UnaryOpsOperation<T> {
-            return UnaryOpsOperation<T>(opInfo, augmentParameters(opInfo), requiresInOut)
+//            println("Old parameters: ${parameters.joinToString(", ")}")
+            val newParameters = augmentParameters(opInfo)
+//            println("New parameters: ${newParameters.joinToString(", ")}")
+            return UnaryOpsOperation<T>(opInfo, newParameters, requiresInOut)
         }
 
         override fun toString(): String {
@@ -136,7 +139,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
         }
     }
 
-    class BinaryOpsOperation<T>(val opInfo: OpInfo, val parameters: List<Any> = emptyList(), val requiresInOut: Boolean = false): BinaryOperation<T>({ args: Arguments<T> ->
+    class BinaryOpsOperation<T>(val opInfo: OpInfo, override val parameters: List<Any> = emptyList(), val requiresInOut: Boolean = false): BinaryOperation<T>({ args: Arguments<T> ->
 //        val output = args.get(0)
 //        val op = ops.module(opInfo.name, args.get(0), args.get(1))
 //        op.run()
@@ -214,7 +217,10 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
         )
 
         override fun mutateParameters(): BinaryOpsOperation<T> {
-            return BinaryOpsOperation<T>(opInfo, augmentParameters(opInfo), requiresInOut)
+//            println("Old parameters: ${parameters.joinToString(", ")}")
+            val newParameters = augmentParameters(opInfo)
+//            println("New parameters: ${newParameters.joinToString(", ")}")
+            return BinaryOpsOperation<T>(opInfo, newParameters, requiresInOut)
         }
 
         override fun toString(): String {
@@ -259,7 +265,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
             unaryOrBinary(it) == OpArity.Unary
             && it.inputs().size >= 1
             && it.outputs().size == 1
-            && it.outputs()[0].type.isAssignableFrom(typeFilter)
+            && (it.outputs()[0].type.isAssignableFrom(typeFilter) || it.outputs()[0].type.isAssignableFrom(RandomAccessibleInterval::class.java))
             && !it.inputs().any { i -> i.type.simpleName.contains("UnaryComputerOp") || i.type.simpleName.contains("UnaryFunctionOp") || i.type.simpleName.contains("List") }
         }.map {
             val requiresInOut = if(it.name in forcedUnary) {
@@ -312,7 +318,6 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
         var infosPrinted = false
         val context = IrisDetectorProblem.context
 
-        val ui: UIService = context.getService(UIService::class.java) as UIService
         val ops: OpService = context.getService(OpService::class.java) as OpService
         val io = context.getService(IOService::class.java) as IOService
 
@@ -415,6 +420,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
                     // TODO: see if we can construct these in some cases.
                     IterableInterval::class.java -> null
                     RandomAccessibleInterval::class.java -> null
+                    RandomAccessible::class.java -> null
 
                     // fall-through, show error
                     else -> {
@@ -428,7 +434,6 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
 
         init {
             unarySubtypes.removeAll(binarySubtypes)
-            if (!ui.isVisible) ui.showUI()
         }
     }
 

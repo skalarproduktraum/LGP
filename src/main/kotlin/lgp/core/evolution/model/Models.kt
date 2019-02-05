@@ -12,6 +12,7 @@ import lgp.core.evolution.operators.*
 import lgp.core.modules.ModuleInformation
 import lgp.core.program.Program
 import lgp.core.program.ProgramGenerator
+import java.io.File
 
 import java.util.Random
 import kotlin.concurrent.thread
@@ -94,16 +95,18 @@ object Models {
         }
 
         fun purgeAndReplenishIndividuals(evaluations: MutableList<Evaluation<TProgram, TOutput>>, dataset: Dataset<TProgram>, generation: Int = -1) {
-            println("Removing individuals with fitness > $minimalInitialFitness in generation $generation")
+            println("${Thread.currentThread().name}: Removing individuals with fitness > $minimalInitialFitness in generation $generation")
             val removed = evaluations.removeIf { it.fitness > minimalInitialFitness }
             this.individuals.removeIf { it.fitness > minimalInitialFitness }
+
             if(removed) {
-                println("Removed ${this.environment.configuration.populationSize - this.individuals.size} unfit individuals in generation $generation")
+                println("${Thread.currentThread().name}: Removed ${this.environment.configuration.populationSize - this.individuals.size} unfit individuals in generation $generation")
                 val programGenerator: ProgramGenerator<TProgram, TOutput> = this.environment.registeredModule(CoreModuleType.ProgramGenerator)
                 val newIndividuals = programGenerator
                     .next()
                     .take(this.environment.configuration.populationSize - this.individuals.size)
                 this.individuals.addAll(newIndividuals)
+
                 evaluations.addAll(newIndividuals.map { individual ->
                     this.fitnessEvaluator.evaluate(individual, dataset, this.environment)
                 })
@@ -117,11 +120,17 @@ object Models {
             // 1. Initialise a population of random programs
             this.initialise()
 
-            println("Running initial evaluations")
+            println("${Thread.currentThread().name}: Evolving generation -1")
             // Determine the initial fitness of the individuals in the population
             val initialEvaluations = this.individuals.map { individual ->
                 this.fitnessEvaluator.evaluate(individual, dataset, this.environment)
             }.toMutableList()
+
+            File("IndividualDump.txt").printWriter().use { out ->
+                this.individuals.forEach {
+                    out.println("program: ${it.toString()}")
+                }
+            }
 
             purgeAndReplenishIndividuals(initialEvaluations, dataset)
 
@@ -131,7 +140,7 @@ object Models {
             val statistics = mutableListOf<EvolutionStatistics>()
 
             (0 until this.environment.configuration.generations).forEach { gen ->
-                println("Evolving generation $gen")
+                println("${Thread.currentThread().name}: Evolving generation $gen")
                 // Stop early whenever we can.
                 if (best.fitness <= this.environment.configuration.stoppingCriterion) {
                     // Make sure to add at least one set of statistics.
@@ -504,7 +513,7 @@ object Models {
                 this.islands = arrayOfNulls(rows.toInt())
 
                 for (row in 0 until rows.toInt()) {
-                    this.islands[row] = Array(columns) { Island(environment, dataset) }
+                    this.islands[row] = Array(columns) { Island(environment, dataset, numIslands) }
                 }
             }
 
@@ -547,10 +556,12 @@ object Models {
 
             val environment: Environment<TProgram, TOutput>
             val dataset: Dataset<TProgram>
+            val numIslands: Int
 
-            constructor(environment: Environment<TProgram, TOutput>, dataset: Dataset<TProgram>) {
+            constructor(environment: Environment<TProgram, TOutput>, dataset: Dataset<TProgram>, numIslands: Int) {
                 this.environment = environment
                 this.dataset = dataset
+                this.numIslands = numIslands
                 this.select = this.environment.registeredModule(
                         CoreModuleType.SelectionOperator
                 )
@@ -591,7 +602,7 @@ object Models {
                 )
 
                 this.individuals = programGenerator.next()
-                        .take(this.environment.configuration.populationSize)
+                        .take(this.environment.configuration.populationSize/numIslands)
                         .toMutableList()
             }
 
@@ -603,6 +614,7 @@ object Models {
                 // 1. Initialise a population of random programs
                 //this.initialise()
 
+
                 // Determine the initial fitness of the individuals in the population
                 val initialEvaluations = this.individuals.map { individual ->
                     this.fitnessEvaluator.evaluate(individual, dataset, this.environment)
@@ -611,7 +623,7 @@ object Models {
                 var best = initialEvaluations.sortedBy(Evaluation<TProgram, TOutput>::fitness).first()
                 this.bestIndividual = best.individual
 
-                (0 until numGenerations).forEach { _ ->
+                (0 until numGenerations).forEach { gen ->
                     val children = this.select.select(this.individuals)
 
                     children.pairwise().map { (mother, father) ->
@@ -700,6 +712,7 @@ object Models {
             val statistics = mutableListOf<EvolutionStatistics>()
 
             while (generation < this@IslandMigration.environment.configuration.generations) {
+                println("${Thread.currentThread().name}: Evolving generation $generation")
                 // Stop early whenever we can.
                 if (best.fitness <= this.environment.configuration.stoppingCriterion) {
                     // Make sure to add at least one set of statistics.
@@ -751,6 +764,7 @@ object Models {
 
                     val toRemove = sortedNeighbourIndividuals.last()
                     val toCopy = sortedIslandIndividuals.first()
+                    println("${Thread.currentThread().name}: Migrating individual with ${toCopy.fitness} as replacement for ${toRemove.fitness}")
 
                     // Double check that the individual to be removed is worse (or at least no better) than the migrant.
                     assert(toRemove.fitness >= toCopy.fitness)
@@ -787,8 +801,37 @@ object Models {
 
                 best = bestIndividuals.sortedBy(Program<TProgram, TOutput>::fitness).first()
 
+                try {
+                    val bestFile = File(this.environment.configuration.runDirectory + "/BestOfGen$generation.txt")
+                    bestFile.printWriter().use { out ->
+                        bestIndividuals.sortedBy(Program<TProgram, TOutput>::fitness).forEach {
+                            out.println("fitness=${it.fitness}: ${it.toString()}")
+                            out.println("----------")
+                        }
+                    }
+
+                    val individualsFile = File(this.environment.configuration.runDirectory + "/IndividualsGen$generation.txt")
+                    individualsFile.printWriter().use { out ->
+                        individuals.sortedBy(Program<TProgram, TOutput>::fitness).forEachIndexed { i, it ->
+                            out.println("fitness=${it.fitness},${i+1}/${individuals.size}: ${it.toString()}")
+                            out.println("----------")
+                        }
+                    }
+                } catch (e: Exception) {
+                    System.err.println("Failed writing best of for generation $generation: $e")
+                }
+
+
                 statistics.add(this.statistics(generation, this.fitnessEvaluator.evaluate(best, dataset, this.environment)))
 
+                try {
+                    val statsFile = File(this.environment.configuration.runDirectory + "/StatsGen$generation.txt")
+                    statsFile.printWriter().use { out ->
+                        out.println(statistics.last().toString())
+                    }
+                } catch (e: Exception) {
+                    System.err.println("Failed writing statistics for generation $generation: $e")
+                }
             }
 
             // We've reached the maximum number of generations, so choose the best individual from
