@@ -63,14 +63,16 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
 
     override val description = Description("f(x) = x^2 + 2x + 2\n\trange = [-10:10:0.5]")
 
+    val runDirectory = SimpleDateFormat("yyyy-MM-dd_HH.mm.ss").format(Date())
+
     override val configLoader = object : ConfigurationLoader {
         override val information = ModuleInformation("Overrides default configuration for this problem.")
 
         override fun load(): Configuration {
             val config = Configuration()
 
-            config.initialMinimumProgramLength = 2
-            config.initialMaximumProgramLength = 6
+            config.initialMinimumProgramLength = 5
+            config.initialMaximumProgramLength = 10
             config.minimumProgramLength = 10
             config.maximumProgramLength = 50
             config.operations = listOf(
@@ -78,22 +80,21 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                 "lgp.lib.operations.Subtraction",
                 "lgp.lib.operations.Multiplication"
             )
-            config.constantsRate = 0.5
+            config.constantsRate = 0.0
             config.constants = listOf("0.0", "1.0", "2.0")
             config.numCalculationRegisters = 4
-            config.populationSize = 100
+            config.populationSize = 80
             config.generations = 1000
             config.numFeatures = 1
             config.microMutationRate = 0.7
             config.crossoverRate = 0.75
             config.macroMutationRate = 0.7
             config.numOffspring = 5
+            config.runDirectory = runDirectory
 
             return config
         }
     }
-
-    private val startTime = SimpleDateFormat("yyyy-MM-dd_HH.mm.ss").format(Date())
 
     enum class ImageMetrics {
         TED,
@@ -183,6 +184,17 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
     val whiteImage: IterableInterval<*>
 
     init {
+        File(config.runDirectory).mkdir()
+
+        val logFile = File("${config.runDirectory}/run.log")
+        val logOutput = PrintStream(FileOutputStream(logFile, true))
+
+        val stdout = TeeStream(System.out, logOutput)
+        val stderr = TeeStream(System.err, logOutput)
+
+        System.setOut(stdout)
+        System.setErr(stderr)
+
         val factory = ArrayImgFactory(FloatType())
         val img = factory.create(imageWidth, imageHeight)
 
@@ -239,8 +251,8 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                             val ds = DefaultDataset(context, ImgPlus.wrap(raiExpected as Img<RealType<*>>))
                             val dsActual = DefaultDataset(context, ImgPlus.wrap(raiActual as Img<RealType<*>>))
                             val timestamp = System.currentTimeMillis()
-                            io.save(dsActual, "$startTime/$timestamp-actual-fitness=$difference.tiff")
-                            io.save(ds, "$startTime/$timestamp-expected.tiff")
+                            io.save(dsActual, "${config.runDirectory}/$timestamp-actual-fitness=$difference.tiff")
+                            io.save(ds, "${config.runDirectory}/$timestamp-expected.tiff")
                         }
 
                         difference
@@ -270,9 +282,9 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
 //                        ops.run("stats.sum", sum, difference) as DoubleType
 
 //                        val timestamp = System.currentTimeMillis()
-//                        intervalToFile(dtExpected as IterableInterval<*>, "$startTime/$timestamp-expected.tiff")
-//                        intervalToFile(dtActual as IterableInterval<*>, "$startTime/$timestamp-actual.tiff")
-//                        intervalToFile(difference as IterableInterval<*> , "$startTime/$timestamp-difference.tiff")
+//                        intervalToFile(dtExpected as IterableInterval<*>, "$config.runDirectory/$timestamp-expected.tiff")
+//                        intervalToFile(dtActual as IterableInterval<*>, "$config.runDirectory/$timestamp-actual.tiff")
+//                        intervalToFile(difference as IterableInterval<*> , "$config.runDirectory/$timestamp-difference.tiff")
 
                         sum.get().toFloat().absoluteValue/(raiActual.dimension(0)*raiActual.dimension(1))
                     }.sum()
@@ -287,13 +299,13 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
 
                         var prev = Float.NaN
                         var totalDifference = 0.0f
-                        var totalDifferenceOriginal = 0.0f
+//                        var totalDifferenceOriginal = 0.0f
 
-                        val raiOriginal = (case.features.features.first()).value
+//                        val raiOriginal = (case.features.features.first()).value
                         val raiExpected = (case.target as Targets.Single).value
                         val raiActual = actual.value
 
-                        val cursorOriginal = Views.iterable(raiOriginal as RandomAccessibleInterval<*>).localizingCursor()
+//                        val cursorOriginal = Views.iterable(raiOriginal as RandomAccessibleInterval<*>).localizingCursor()
                         val cursorExpected = Views.iterable(raiExpected as RandomAccessibleInterval<*>).localizingCursor()
 //                        val cursorActual = Views.iterable(raiActual as RandomAccessibleInterval<*>).localizingCursor()
 
@@ -301,12 +313,12 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                         val converted = ops.run("convert.float32", thresholded) as IterableInterval<*>
                         val cursorActual = Views.iterable(converted as RandomAccessibleInterval<*>).localizingCursor()
 
-                        while(cursorActual.hasNext() && cursorExpected.hasNext() && cursorOriginal.hasNext()) {
-                            cursorOriginal.fwd()
+                        while(cursorActual.hasNext() && cursorExpected.hasNext()) {
+//                            cursorOriginal.fwd()
                             cursorActual.fwd()
                             cursorExpected.fwd()
 
-                            val originalValue = (cursorOriginal.get() as FloatType).get()
+//                            val originalValue = (cursorOriginal.get() as FloatType).get()
                             val actualValue = (cursorActual.get() as FloatType).get()
                             val expectedValue = (cursorExpected.get() as FloatType).get()
 
@@ -315,7 +327,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                             }
 
                             totalDifference += (prev - actualValue).absoluteValue
-                            totalDifferenceOriginal += (actualValue - originalValue).absoluteValue
+//                            totalDifferenceOriginal += (actualValue - originalValue).absoluteValue
 
                             prev = actualValue
 
@@ -344,19 +356,19 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                         }
 
                         val mcc = (truePositives * trueNegatives - falsePositives * falseNegatives)/mccDenom
-                        println("${Thread.currentThread().name}:MCC=$mcc, TP=$truePositives, FP=$falsePositives, TN=$trueNegatives, FN=$falseNegatives, delta=$totalDifference, delta_o=$totalDifferenceOriginal")
+                        println("${Thread.currentThread().name}:MCC=$mcc, TP=$truePositives, FP=$falsePositives, TN=$trueNegatives, FN=$falseNegatives, delta=$totalDifference")
 
-                        if(1.0f - mcc.toFloat().absoluteValue < 0.2f) {
+                        if(1.0f - mcc.toFloat().absoluteValue < 0.4f) {
                             val ds = DefaultDataset(context, ImgPlus.wrap(raiExpected as Img<RealType<*>>))
                             val dsActual = DefaultDataset(context, ImgPlus.wrap(converted as Img<RealType<*>>))
                             val timestamp = System.currentTimeMillis()
-                            val filename = "$startTime/$timestamp-actual-fitness=${1.0f-mcc.toFloat().absoluteValue}.tiff"
+                            val filename = "${config.runDirectory}/$timestamp-actual-fitness=${1.0f-mcc.toFloat().absoluteValue}.tiff"
                             println("${Thread.currentThread().name}:Saving actual to $filename")
                             io.save(dsActual, filename)
-                            io.save(ds, "$startTime/$timestamp-expected.tiff")
+                            io.save(ds, "${config.runDirectory}/$timestamp-expected.tiff")
                         }
 
-                        if(totalDifference < 10.0f || totalDifferenceOriginal < 10.0f) {
+                        if(totalDifference < 10.0f) {
                             1.0f
                         } else {
                             1.0f - mcc.toFloat().absoluteValue
@@ -398,10 +410,10 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
     override val registeredModules = ModuleContainer<IterableInterval<*>, Outputs.Single<IterableInterval<*>>>(
         modules = mutableMapOf(
             CoreModuleType.InstructionGenerator to { environment ->
-                BaseInstructionGenerator(environment)
+                EffectiveProgramInstructionGenerator(environment)
             },
             CoreModuleType.ProgramGenerator to { environment ->
-                BaseProgramGenerator(
+                EffectiveProgramGenerator(
                     environment,
                     sentinelTrueValue = whiteImage,
                     outputRegisterIndices = listOf(0),
@@ -457,9 +469,12 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
     }
 
     override fun initialiseModel() {
-        this.model = Models.IslandMigration(this.environment,
-            Models.IslandMigration.IslandMigrationOptions(4, 2, 20))
-//        this.model = Models.SteadyState(this.environment)
+//        this.model = Models.IslandMigration(this.environment,
+//            Models.IslandMigration.IslandMigrationOptions(
+//                numIslands = 4,
+//                migrationInterval = 10,
+//                migrationSize = 3))
+        this.model = Models.SteadyState(this.environment)
     }
 
     override fun solve(): IrisDetectorSolution {
@@ -481,7 +496,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
             }
             */
 
-            val runner = DistributedTrainer(environment, model, runs = 4)
+            val runner = DistributedTrainer(environment, model, runs = 2)
 
             return runBlocking {
                 val job = runner.trainAsync(
@@ -501,19 +516,6 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                 "The initialisation routines for this problem must be run before it can be solved."
             )
         }
-    }
-
-    init {
-       File(startTime).mkdir()
-
-        val logFile = File("$startTime/run.log")
-        val logOutput = PrintStream(FileOutputStream(logFile, true))
-
-        val stdout = TeeStream(System.out, logOutput)
-        val stderr = TeeStream(System.err, logOutput)
-
-        System.setOut(stdout)
-        System.setErr(stderr)
     }
 
     companion object {
