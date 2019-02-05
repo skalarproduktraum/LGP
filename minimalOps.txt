@@ -12,7 +12,7 @@ filter.sigma
 filter.sobel
 filter.variance
 image.fill
-image.normalize
+#image.normalize
 image.invert
 math.abs
 math.add
