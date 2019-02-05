@@ -130,6 +130,8 @@ class Configuration {
      */
     var numberOfRuns = 1
 
+    var runDirectory: String = ""
+
     fun isValid(): ConfigurationValidity {
         return when {
             // Need at least one feature in the data set.
