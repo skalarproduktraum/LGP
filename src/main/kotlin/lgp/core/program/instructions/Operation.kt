@@ -50,5 +50,6 @@ abstract class Operation<T>(val arity: Arity, val func: Function<T>) : Module {
 }
 
 interface ParameterMutateable<T> {
+    val parameters: List<Any>
     fun mutateParameters(): Operation<T>
 }
