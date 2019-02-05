@@ -513,7 +513,7 @@ object Models {
                 this.islands = arrayOfNulls(rows.toInt())
 
                 for (row in 0 until rows.toInt()) {
-                    this.islands[row] = Array(columns) { Island(environment, dataset) }
+                    this.islands[row] = Array(columns) { Island(environment, dataset, numIslands) }
                 }
             }
 
@@ -556,10 +556,12 @@ object Models {
 
             val environment: Environment<TProgram, TOutput>
             val dataset: Dataset<TProgram>
+            val numIslands: Int
 
-            constructor(environment: Environment<TProgram, TOutput>, dataset: Dataset<TProgram>) {
+            constructor(environment: Environment<TProgram, TOutput>, dataset: Dataset<TProgram>, numIslands: Int) {
                 this.environment = environment
                 this.dataset = dataset
+                this.numIslands = numIslands
                 this.select = this.environment.registeredModule(
                         CoreModuleType.SelectionOperator
                 )
@@ -600,7 +602,7 @@ object Models {
                 )
 
                 this.individuals = programGenerator.next()
-                        .take(this.environment.configuration.populationSize)
+                        .take(this.environment.configuration.populationSize/numIslands)
                         .toMutableList()
             }
 
@@ -762,6 +764,7 @@ object Models {
 
                     val toRemove = sortedNeighbourIndividuals.last()
                     val toCopy = sortedIslandIndividuals.first()
+                    println("${Thread.currentThread().name}: Migrating individual with ${toCopy.fitness} as replacement for ${toRemove.fitness}")
 
                     // Double check that the individual to be removed is worse (or at least no better) than the migrant.
                     assert(toRemove.fitness >= toCopy.fitness)
@@ -798,8 +801,37 @@ object Models {
 
                 best = bestIndividuals.sortedBy(Program<TProgram, TOutput>::fitness).first()
 
+                try {
+                    val bestFile = File(this.environment.configuration.runDirectory + "/BestOfGen$generation.txt")
+                    bestFile.printWriter().use { out ->
+                        bestIndividuals.sortedBy(Program<TProgram, TOutput>::fitness).forEach {
+                            out.println("fitness=${it.fitness}: ${it.toString()}")
+                            out.println("----------")
+                        }
+                    }
+
+                    val individualsFile = File(this.environment.configuration.runDirectory + "/IndividualsGen$generation.txt")
+                    individualsFile.printWriter().use { out ->
+                        individuals.sortedBy(Program<TProgram, TOutput>::fitness).forEachIndexed { i, it ->
+                            out.println("fitness=${it.fitness},${i+1}/${individuals.size}: ${it.toString()}")
+                            out.println("----------")
+                        }
+                    }
+                } catch (e: Exception) {
+                    System.err.println("Failed writing best of for generation $generation: $e")
+                }
+
+
                 statistics.add(this.statistics(generation, this.fitnessEvaluator.evaluate(best, dataset, this.environment)))
 
+                try {
+                    val statsFile = File(this.environment.configuration.runDirectory + "/StatsGen$generation.txt")
+                    statsFile.printWriter().use { out ->
+                        out.println(statistics.last().toString())
+                    }
+                } catch (e: Exception) {
+                    System.err.println("Failed writing statistics for generation $generation: $e")
+                }
             }
 
             // We've reached the maximum number of generations, so choose the best individual from
