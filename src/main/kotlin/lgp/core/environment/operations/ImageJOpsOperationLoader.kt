@@ -4,7 +4,8 @@ import lgp.core.modules.ModuleInformation
 import lgp.core.program.instructions.*
 import lgp.core.program.registers.Arguments
 import lgp.examples.IrisDetectorProblem
-import net.imagej.*
+import net.imagej.DefaultDataset
+import net.imagej.ImgPlus
 import net.imagej.ops.OpInfo
 import net.imagej.ops.OpService
 import net.imagej.ops.special.BinaryOp
@@ -25,20 +26,19 @@ import net.imglib2.type.numeric.integer.IntType
 import net.imglib2.type.numeric.real.FloatType
 import org.reflections.Reflections
 import org.scijava.io.IOService
-import org.scijava.ui.UIService
 import java.io.File
 import kotlin.random.Random
 
-class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<String> = emptyList(), opService: OpService? = null) : OperationLoader<T> {
+class ImageJOpsOperationLoader<T: Image>(val typeFilter: Class<*>, val opsFilter: List<String> = emptyList(), opService: OpService? = null) : OperationLoader<T> {
 
-    class UnaryOpsOperation<T>(val opInfo: OpInfo, override val parameters: List<Any> = emptyList(), val requiresInOut: Boolean = false) : UnaryOperation<T>({ args: Arguments<T> ->
+    class UnaryOpsOperation<T: Image>(val opInfo: OpInfo, override val parameters: List<Any> = emptyList(), val requiresInOut: Boolean = false) : UnaryOperation<T>({ args: Arguments<T> ->
         try {
             val start = System.nanoTime()
             printlnMaybe("${Thread.currentThread().name}: Running unary op ${opInfo.name} (${opInfo.inputs().joinToString { it.type.simpleName }} -> ${opInfo.outputs().joinToString { it.type.simpleName }}), parameters: ${parameters.joinToString(",")}")
             val arguments = mutableListOf<Any>()
 
             if(requiresInOut) {
-                val ii = args.get(0) as IterableInterval<*>
+                val ii = args.get(0).image as IterableInterval<*>
                 val factory = if(opInfo.name.startsWith("threshold.")) {
                     ArrayImgFactory(BitType())
                 } else {
@@ -50,12 +50,12 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
                 arguments.add(output)
             }
 
-            arguments.add(args.get(0)!!)
+            arguments.add(args.get(0).image)
             arguments.addAll(parameters)
 
-            val opsOutput = ops.run(opInfo.name, *(arguments.toTypedArray())) as T
+            val opsOutput = ops.run(opInfo.name, *(arguments.toTypedArray()))
             val result = if(opInfo.name.startsWith("threshold.")) {
-                ops.run("convert.float32", arguments.get(0)) as T
+                ops.run("convert.float32", arguments.get(0))
             } else {
                 opsOutput
             }
@@ -76,7 +76,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
                 e.printStackTrace()
             }
 
-            result
+            Image.ImgLib2Image(result as IterableInterval<*>) as T
         } catch (e: Exception) {
             printlnMaybe("${Thread.currentThread().name}: Execution of unary ${opInfo.name} failed, returning input image.")
             printlnMaybe("${Thread.currentThread().name}: Parameters were: ${parameters.joinToString(",")}")
@@ -139,7 +139,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
         }
     }
 
-    class BinaryOpsOperation<T>(val opInfo: OpInfo, override val parameters: List<Any> = emptyList(), val requiresInOut: Boolean = false): BinaryOperation<T>({ args: Arguments<T> ->
+    class BinaryOpsOperation<T: Image>(val opInfo: OpInfo, override val parameters: List<Any> = emptyList(), val requiresInOut: Boolean = false): BinaryOperation<T>({ args: Arguments<T> ->
 //        val output = args.get(0)
 //        val op = ops.module(opInfo.name, args.get(0), args.get(1))
 //        op.run()
@@ -149,7 +149,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
             val arguments = mutableListOf<Any?>()
 
             if(requiresInOut) {
-                val ii = args.get(0) as IterableInterval<*>
+                val ii = args.get(0).image as IterableInterval<*>
                 val factory = if(opInfo.name.startsWith("threshold.")) {
                     ArrayImgFactory(BitType())
                 } else {
@@ -165,11 +165,11 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
                 arguments.add(output)
             }
 
-            arguments.add(args.get(0)!!)
-            arguments.add(args.get(1)!!)
+            arguments.add(args.get(0)!!.image)
+            arguments.add(args.get(1)!!.image)
             arguments.addAll(parameters)
 
-            val result = ops.run(opInfo.name, *(arguments.toTypedArray())) as T
+            val result = ops.run(opInfo.name, *(arguments.toTypedArray()))
 
             val duration = System.nanoTime() - start
             printlnMaybe("${Thread.currentThread().name}: ${opInfo.name} took ${duration/10e5}ms")
@@ -187,7 +187,7 @@ class ImageJOpsOperationLoader<T>(val typeFilter: Class<*>, val opsFilter: List<
                 e.printStackTrace()
             }
 
-            result
+            Image.ImgLib2Image(result as IterableInterval<*>) as T
         } catch (e: Exception) {
             printlnMaybe("${Thread.currentThread().name}: Execution of binary ${opInfo.name} failed, returning RHS input image.")
             printlnMaybe("${Thread.currentThread().name}: Parameters were: ${parameters.joinToString(",")}")

@@ -1,16 +1,24 @@
 package lgp.examples
 
 import io.scif.SCIFIOService
-import io.scif.img.IO
 import kotlinx.coroutines.runBlocking
-import lgp.core.environment.*
+import lgp.core.environment.CoreModuleType
+import lgp.core.environment.DefaultValueProviders
+import lgp.core.environment.Environment
+import lgp.core.environment.ModuleContainer
 import lgp.core.environment.config.Configuration
 import lgp.core.environment.config.ConfigurationLoader
 import lgp.core.environment.constants.GenericConstantLoader
 import lgp.core.environment.dataset.*
+import lgp.core.environment.operations.AnalysisBackend
+import lgp.core.environment.operations.Image
 import lgp.core.environment.operations.ImageJOpsOperationLoader
+import lgp.core.environment.operations.OpenCVOperationsLoader
 import lgp.core.evolution.*
-import lgp.core.evolution.fitness.*
+import lgp.core.evolution.fitness.FitnessCase
+import lgp.core.evolution.fitness.FitnessFunctions
+import lgp.core.evolution.fitness.SingleOutputFitnessContext
+import lgp.core.evolution.fitness.SingleOutputFitnessFunction
 import lgp.core.evolution.model.Models
 import lgp.core.evolution.operators.*
 import lgp.core.evolution.training.DistributedTrainer
@@ -30,6 +38,8 @@ import net.imglib2.type.numeric.RealType
 import net.imglib2.type.numeric.real.DoubleType
 import net.imglib2.type.numeric.real.FloatType
 import net.imglib2.view.Views
+import org.bytedeco.javacpp.opencv_core
+import org.bytedeco.javacpp.opencv_imgcodecs.imread
 import org.scijava.Context
 import org.scijava.io.IOService
 import org.scijava.service.SciJavaService
@@ -37,6 +47,7 @@ import org.scijava.thread.ThreadService
 import java.io.File
 import java.io.FileOutputStream
 import java.io.PrintStream
+import java.net.InetAddress
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.absoluteValue
@@ -53,16 +64,16 @@ import kotlin.math.sqrt
 // running the problem with a `Trainer` impl.
 data class IrisDetectorSolution(
     override val problem: String,
-    val result: TrainingResult<IterableInterval<*>, Outputs.Single<IterableInterval<*>>>
-) : Solution<IterableInterval<*>>
+    val result: TrainingResult<Image, Outputs.Single<Image>>
+) : Solution<Image>
 
 // Define the problem and the necessary components to solve it.
-class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableInterval<*>>>() {
+class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJOps): Problem<Image, Outputs.Single<Image>>() {
     override val name = "Iris Detection"
 
     override val description = Description("f(x) = x^2 + 2x + 2\n\trange = [-10:10:0.5]")
 
-    val runDirectory = SimpleDateFormat("yyyy-MM-dd_HH.mm.ss").format(Date())
+    val runDirectory = "${InetAddress.getLocalHost().hostName}-" + SimpleDateFormat("yyyy-MM-dd_HH.mm.ss_SSS").format(Date())
 
     override val configLoader = object : ConfigurationLoader {
         override val information = ModuleInformation("Overrides default configuration for this problem.")
@@ -111,16 +122,25 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
     override val constantLoader = GenericConstantLoader(
         constants = config.constants,
         parseFunction = { s ->
-            val f = ArrayImgFactory(FloatType())
-            val img = f.create(imageWidth, imageHeight)
-            val rai = Views.interval(img, longArrayOf(0, 0), longArrayOf(imageWidth- 1, imageHeight - 1))
-            val cursor = rai.cursor()
-            while(cursor.hasNext()) {
-                cursor.fwd()
-                cursor.get().set(s.toFloat())
+            when(backend) {
+                AnalysisBackend.ImageJOps -> {
+                    val f = ArrayImgFactory(FloatType())
+                    val img = f.create(imageWidth, imageHeight)
+                    val rai = Views.interval(img, longArrayOf(0, 0), longArrayOf(imageWidth- 1, imageHeight - 1))
+                    val cursor = rai.cursor()
+                    while(cursor.hasNext()) {
+                        cursor.fwd()
+                        cursor.get().set(s.toFloat())
+                    }
+
+                    Image.ImgLib2Image(rai as IterableInterval<*>)
+                }
+                AnalysisBackend.OpenCV -> {
+                    val m = opencv_core.Mat(imageWidth.toInt(), imageHeight.toInt(), opencv_core.CV_8U)
+                    Image.OpenCVImage(m)
+                }
             }
 
-            rai as IterableInterval<*>
         }
     )
 
@@ -134,24 +154,41 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
             d.listFiles().toList()
         }.flatten()
 
-    val datasetLoader = object : DatasetLoader<IterableInterval<*>> {
+    val datasetLoader = object : DatasetLoader<Image> {
         override val information = ModuleInformation("Generates samples in the range [-10:10:0.5].")
 
-        override fun load(): Dataset<IterableInterval<*>> {
+        override fun load(): Dataset<Image> {
             val opService = ImageJOpsOperationLoader.ops
-            val factory = ArrayImgFactory(FloatType())
+
+            fun opsLoader(filename: String, singleChannel: Boolean = false): Image {
+                val img = io.open(filename) as Img<*>
+                val floatImg = opService.run("convert.float32", img) as RandomAccessibleInterval<*>
+
+                return if(singleChannel) {
+                    Image.ImgLib2Image(Views.hyperSlice(floatImg, 2, 0))
+                } else {
+                    Image.ImgLib2Image(floatImg as IterableInterval<*>)
+                }
+            }
+
+            fun opencvLoader(filename: String, singleChannel: Boolean = false): Image {
+                val m = imread(filename)
+
+                return Image.OpenCVImage(m)
+            }
+
+            fun load(filename: String, singleChannel: Boolean): Image {
+                return when(backend) {
+                    AnalysisBackend.ImageJOps -> opsLoader(filename, singleChannel)
+                    AnalysisBackend.OpenCV -> opencvLoader(filename, singleChannel)
+                }
+            }
 
             println("Loading input images ...")
             val inputs = inputFiles.map { filename ->
                 println("Loading input file $filename")
-                val img = io.open(filename.toString()) as Img<*>
-                val floatImg = opService.run("convert.float32", img) as RandomAccessibleInterval<*>
-
-                val final = Views.hyperSlice(floatImg, 2, 0)
-
-//                ImageJFunctions.showFloat(final as RandomAccessibleInterval<FloatType>, filename.toString())
-
-                Sample(listOf(Feature(name = "image", value = final as IterableInterval<*>)))
+                val final = load(filename.toString(), true)
+                Sample(listOf(Feature(name = "image", value = final)))
             }
 
             println("Loading ground truth masks ...")
@@ -161,11 +198,9 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                 val AB = if(id < 6) { "A" } else { "B" }
                 val maskFileName = "OperatorA_${filename.parent.substringAfterLast("/")}-${AB}_${String.format("%02d", id)}.tiff"
                 val f = "$inputDirectory/IRISSEG-EP-Masks/masks/iitd/$maskFileName"
-                val img = io.open(f) as Img<*>
 
-                val floatImg = opService.run("convert.float32", img)
-//                ImageJFunctions.show(floatImg as RandomAccessibleInterval<FloatType>, maskFileName)
-                Targets.Single(floatImg as IterableInterval<*>)
+                val img = load(f, false)
+                Targets.Single(img)
             }
 
             return Dataset(
@@ -175,12 +210,20 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
         }
     }
 
-    override val operationLoader = ImageJOpsOperationLoader<IterableInterval<*>>(
-        typeFilter = IterableInterval::class.java,
-        opsFilter= config.operations
-    )
-    val defaultImage: IterableInterval<*>
-    val whiteImage: IterableInterval<*>
+    override val operationLoader = when(backend) {
+        AnalysisBackend.ImageJOps -> {
+            ImageJOpsOperationLoader<Image>(
+                    typeFilter = IterableInterval::class.java,
+                    opsFilter= config.operations
+            )
+        }
+        AnalysisBackend.OpenCV -> {
+            OpenCVOperationsLoader<Image>()
+        }
+    }
+
+    val defaultImage: Image
+    val whiteImage: Image
 
     init {
         File(config.runDirectory).mkdir()
@@ -194,18 +237,28 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
         System.setOut(stdout)
         System.setErr(stderr)
 
-        val factory = ArrayImgFactory(FloatType())
-        val img = factory.create(imageWidth, imageHeight)
+        when(backend) {
+            AnalysisBackend.ImageJOps -> {
+                val factory = ArrayImgFactory(FloatType())
+                val img = factory.create(imageWidth, imageHeight)
 
-        defaultImage = Views.interval(img, longArrayOf(0, 0), longArrayOf(imageWidth-1, imageHeight-1))
+                defaultImage = Image.ImgLib2Image(Views.interval(img, longArrayOf(0, 0), longArrayOf(imageWidth-1, imageHeight-1)))
 
-        val whiteImg = factory.create(imageWidth, imageHeight)
+                val whiteImg = factory.create(imageWidth, imageHeight)
 
-        whiteImage = Views.interval(whiteImg, longArrayOf(0, 0), longArrayOf(imageWidth-1, imageHeight-1))
-        val cursor = whiteImg.cursor()
-        while(cursor.hasNext()) {
-            cursor.fwd()
-            cursor.get().set(1.0f)
+                whiteImage = Image.ImgLib2Image(Views.interval(whiteImg, longArrayOf(0, 0), longArrayOf(imageWidth-1, imageHeight-1)))
+
+                val cursor = whiteImg.cursor()
+                while(cursor.hasNext()) {
+                    cursor.fwd()
+                    cursor.get().set(1.0f)
+                }
+            }
+
+            AnalysisBackend.OpenCV -> {
+                defaultImage = Image.OpenCVImage(opencv_core.Mat.zeros(imageWidth.toInt(), imageHeight.toInt(), opencv_core.CV_8U).asMat())
+                whiteImage = Image.OpenCVImage(opencv_core.Mat.ones(imageWidth.toInt(), imageHeight.toInt(), opencv_core.CV_8U).asMat())
+            }
         }
     }
 
@@ -221,63 +274,73 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
     }
 
     override val fitnessFunctionProvider = {
-        val ff: SingleOutputFitnessFunction<IterableInterval<*>> = object : SingleOutputFitnessFunction<IterableInterval<*>>() {
+        val ff: SingleOutputFitnessFunction<Image> = object : SingleOutputFitnessFunction<Image>() {
 
-            override fun fitness(outputs: List<Outputs.Single<IterableInterval<*>>>, cases: List<FitnessCase<IterableInterval<*>>>): Double {
+            override fun fitness(outputs: List<Outputs.Single<Image>>, cases: List<FitnessCase<Image>>): Double {
                 val fitnessAbsoluteDifferences = {
-                    cases.zip(outputs).map { (case, actual) ->
-                        val raiExpected = (case.target as Targets.Single).value
-                        val raiActual = actual.value
+                    when(backend) {
+                        AnalysisBackend.ImageJOps -> {
+                            cases.zip(outputs).map { (case, actual) ->
+                                val raiExpected = ((case.target as Targets.Single).value as Image.ImgLib2Image).image
+                                val raiActual = (actual.value as Image.ImgLib2Image).image
 
 
-                        val cursorExpected = Views.iterable(raiExpected as RandomAccessibleInterval<*>).localizingCursor()
-                        val cursorActual = Views.iterable(raiActual as RandomAccessibleInterval<*>).localizingCursor()
+                                val cursorExpected = Views.iterable(raiExpected as RandomAccessibleInterval<*>).localizingCursor()
+                                val cursorActual = Views.iterable(raiActual as RandomAccessibleInterval<*>).localizingCursor()
 
-                        var difference = 0.0f
-                        var counts = 0
-                        while (cursorActual.hasNext() && cursorExpected.hasNext()) {
-                            cursorActual.fwd()
-                            cursorExpected.fwd()
+                                var difference = 0.0f
+                                var counts = 0
+                                while (cursorActual.hasNext() && cursorExpected.hasNext()) {
+                                    cursorActual.fwd()
+                                    cursorExpected.fwd()
 
-                            difference += ((cursorActual.get() as FloatType).get() -
-                                    (cursorExpected.get() as FloatType).get()).absoluteValue
-                            counts++
+                                    difference += ((cursorActual.get() as FloatType).get() -
+                                            (cursorExpected.get() as FloatType).get()).absoluteValue
+                                    counts++
+                                }
+
+                                difference /= counts
+
+                                if (difference < 100) {
+                                    val ds = DefaultDataset(context, ImgPlus.wrap(raiExpected as Img<RealType<*>>))
+                                    val dsActual = DefaultDataset(context, ImgPlus.wrap(raiActual as Img<RealType<*>>))
+                                    val timestamp = System.currentTimeMillis()
+                                    io.save(dsActual, "${config.runDirectory}/$timestamp-actual-fitness=$difference.tiff")
+                                    io.save(ds, "${config.runDirectory}/$timestamp-expected.tiff")
+                                }
+
+                                difference
+                            }.sum()
                         }
 
-                        difference /= counts
-
-                        if(difference < 100) {
-                            val ds = DefaultDataset(context, ImgPlus.wrap(raiExpected as Img<RealType<*>>))
-                            val dsActual = DefaultDataset(context, ImgPlus.wrap(raiActual as Img<RealType<*>>))
-                            val timestamp = System.currentTimeMillis()
-                            io.save(dsActual, "${config.runDirectory}/$timestamp-actual-fitness=$difference.tiff")
-                            io.save(ds, "${config.runDirectory}/$timestamp-expected.tiff")
+                        AnalysisBackend.OpenCV -> {
+                            0.0f
                         }
-
-                        difference
-                    }.sum()
+                    }
                 }
 
                 val fitnessTED = {
-                    val factory = ArrayImgFactory(FloatType())
-                    cases.zip(outputs).map { (case, actual) ->
-                        val raiExpected = (case.target as Targets.Single).value
-                        val raiActual = actual.value
+                    when(backend) {
+                        AnalysisBackend.ImageJOps -> {
+                            val factory = ArrayImgFactory(FloatType())
+                            cases.zip(outputs).map { (case, actual) ->
+                                val raiExpected = ((case.target as Targets.Single).value as Image.ImgLib2Image).image
+                                val raiActual = (actual.value as Image.ImgLib2Image).image
 
-                        val dtExpected = cache.getOrPut(raiExpected) {
-                            val convertedExpected = ops.run("convert.bit", raiExpected)
-                            val dtExpected = factory.create(raiExpected.dimension(0), raiExpected.dimension(1))
-                            ops.run("image.distancetransform", dtExpected, convertedExpected)
+                                val dtExpected = cache.getOrPut(raiExpected) {
+                                    val convertedExpected = ops.run("convert.bit", raiExpected)
+                                    val dtExpected = factory.create(raiExpected.dimension(0), raiExpected.dimension(1))
+                                    ops.run("image.distancetransform", dtExpected, convertedExpected)
 
-                            dtExpected
-                        }
+                                    dtExpected
+                                }
 
-                        val convertedActual = ops.run("convert.bit", raiActual)
-                        val dtActual = ops.run("image.distancetransform", convertedActual)
+                                val convertedActual = ops.run("convert.bit", raiActual)
+                                val dtActual = ops.run("image.distancetransform", convertedActual)
 
-                        val difference = ops.run("math.subtract", dtExpected, dtActual)
+                                val difference = ops.run("math.subtract", dtExpected, dtActual)
 //                        val sum = DoubleType(0.0)
-                        val sum = ops.run("stats.sum", difference) as DoubleType
+                                val sum = ops.run("stats.sum", difference) as DoubleType
 //                        ops.run("stats.sum", sum, difference) as DoubleType
 
 //                        val timestamp = System.currentTimeMillis()
@@ -285,94 +348,106 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
 //                        intervalToFile(dtActual as IterableInterval<*>, "$config.runDirectory/$timestamp-actual.tiff")
 //                        intervalToFile(difference as IterableInterval<*> , "$config.runDirectory/$timestamp-difference.tiff")
 
-                        sum.get().toFloat().absoluteValue/(raiActual.dimension(0)*raiActual.dimension(1))
-                    }.sum()
+                                sum.get().toFloat().absoluteValue / (raiActual.dimension(0) * raiActual.dimension(1))
+                            }.sum()
+                        }
+
+                        AnalysisBackend.OpenCV -> TODO()
+                    }
                 }
 
                 val fitnessMatthewsCorrelationCoefficient = {
-                    cases.zip(outputs).map { (case, actual) ->
-                        var trueNegatives = 0L
-                        var falseNegatives = 0L
-                        var truePositives = 0L
-                        var falsePositives = 0L
+                    when(backend) {
+                        AnalysisBackend.ImageJOps -> {
+                            cases.zip(outputs).map { (case, actual) ->
+                                var trueNegatives = 0L
+                                var falseNegatives = 0L
+                                var truePositives = 0L
+                                var falsePositives = 0L
 
-                        var prev = Float.NaN
-                        var totalDifference = 0.0f
+                                var prev = Float.NaN
+                                var totalDifference = 0.0f
 //                        var totalDifferenceOriginal = 0.0f
 
 //                        val raiOriginal = (case.features.features.first()).value
-                        val raiExpected = (case.target as Targets.Single).value
-                        val raiActual = actual.value
+                                val raiExpected = (case.target as Targets.Single).value
+                                val raiActual = actual.value
 
 //                        val cursorOriginal = Views.iterable(raiOriginal as RandomAccessibleInterval<*>).localizingCursor()
-                        val cursorExpected = Views.iterable(raiExpected as RandomAccessibleInterval<*>).localizingCursor()
+                                val cursorExpected = Views.iterable(raiExpected as RandomAccessibleInterval<*>).localizingCursor()
 //                        val cursorActual = Views.iterable(raiActual as RandomAccessibleInterval<*>).localizingCursor()
 
-                        val thresholded = ops.run("threshold.maxEntropy", raiActual)
-                        val converted = ops.run("convert.float32", thresholded) as IterableInterval<*>
-                        val cursorActual = Views.iterable(converted as RandomAccessibleInterval<*>).localizingCursor()
+                                val thresholded = ops.run("threshold.maxEntropy", raiActual)
+                                val converted = ops.run("convert.float32", thresholded) as IterableInterval<*>
+                                val cursorActual = Views.iterable(converted as RandomAccessibleInterval<*>).localizingCursor()
 
-                        while(cursorActual.hasNext() && cursorExpected.hasNext()) {
+                                while (cursorActual.hasNext() && cursorExpected.hasNext()) {
 //                            cursorOriginal.fwd()
-                            cursorActual.fwd()
-                            cursorExpected.fwd()
+                                    cursorActual.fwd()
+                                    cursorExpected.fwd()
 
 //                            val originalValue = (cursorOriginal.get() as FloatType).get()
-                            val actualValue = (cursorActual.get() as FloatType).get()
-                            val expectedValue = (cursorExpected.get() as FloatType).get()
+                                    val actualValue = (cursorActual.get() as FloatType).get()
+                                    val expectedValue = (cursorExpected.get() as FloatType).get()
 
-                            if(prev.isNaN()) {
-                                prev = actualValue
-                            }
+                                    if (prev.isNaN()) {
+                                        prev = actualValue
+                                    }
 
-                            totalDifference += (prev - actualValue).absoluteValue
+                                    totalDifference += (prev - actualValue).absoluteValue
 //                            totalDifferenceOriginal += (actualValue - originalValue).absoluteValue
 
-                            prev = actualValue
+                                    prev = actualValue
 
-                            if(expectedValue < 254.9f && actualValue < 1.0f) {
-                                trueNegatives++
-                            }
+                                    if (expectedValue < 254.9f && actualValue < 1.0f) {
+                                        trueNegatives++
+                                    }
 
-                            if(expectedValue > 254.9f && actualValue < 1.0f) {
-                                falseNegatives++
-                            }
+                                    if (expectedValue > 254.9f && actualValue < 1.0f) {
+                                        falseNegatives++
+                                    }
 
-                            if(expectedValue > 254.9f && actualValue >= 1.0f) {
-                                truePositives++
-                            }
+                                    if (expectedValue > 254.9f && actualValue >= 1.0f) {
+                                        truePositives++
+                                    }
 
-                            if(expectedValue < 254.9f && actualValue >= 1.0f) {
-                                falsePositives++
-                            }
+                                    if (expectedValue < 254.9f && actualValue >= 1.0f) {
+                                        falsePositives++
+                                    }
+                                }
+
+                                val denom = (truePositives + falsePositives) * (truePositives + falseNegatives) * (trueNegatives + falsePositives) * (trueNegatives + falseNegatives)
+                                val mccDenom = if (denom == 0L) {
+                                    1.0
+                                } else {
+                                    sqrt(denom.toDouble())
+                                }
+
+                                val mcc = (truePositives * trueNegatives - falsePositives * falseNegatives) / mccDenom
+                                println("${Thread.currentThread().name}:MCC=$mcc, TP=$truePositives, FP=$falsePositives, TN=$trueNegatives, FN=$falseNegatives, delta=$totalDifference")
+
+                                if (1.0f - mcc.toFloat().absoluteValue < 0.4f) {
+                                    val ds = DefaultDataset(context, ImgPlus.wrap(raiExpected as Img<RealType<*>>))
+                                    val dsActual = DefaultDataset(context, ImgPlus.wrap(converted as Img<RealType<*>>))
+                                    val timestamp = System.currentTimeMillis()
+                                    val filename = "${config.runDirectory}/$timestamp-actual-fitness=${1.0f - mcc.toFloat().absoluteValue}.tiff"
+                                    println("${Thread.currentThread().name}:Saving actual to $filename")
+                                    io.save(dsActual, filename)
+                                    io.save(ds, "${config.runDirectory}/$timestamp-expected.tiff")
+                                }
+
+                                if (totalDifference < 10.0f) {
+                                    1.0f
+                                } else {
+                                    1.0f - mcc.toFloat().absoluteValue
+                                }
+                            }.sum()
                         }
 
-                        val denom = (truePositives + falsePositives) * (truePositives + falseNegatives) * (trueNegatives + falsePositives) * (trueNegatives + falseNegatives)
-                        val mccDenom = if(denom == 0L) {
-                            1.0
-                        } else {
-                            sqrt(denom.toDouble())
+                        AnalysisBackend.OpenCV -> {
+                            0.0f
                         }
-
-                        val mcc = (truePositives * trueNegatives - falsePositives * falseNegatives)/mccDenom
-                        println("${Thread.currentThread().name}:MCC=$mcc, TP=$truePositives, FP=$falsePositives, TN=$trueNegatives, FN=$falseNegatives, delta=$totalDifference")
-
-                        if(1.0f - mcc.toFloat().absoluteValue < 0.4f) {
-                            val ds = DefaultDataset(context, ImgPlus.wrap(raiExpected as Img<RealType<*>>))
-                            val dsActual = DefaultDataset(context, ImgPlus.wrap(converted as Img<RealType<*>>))
-                            val timestamp = System.currentTimeMillis()
-                            val filename = "${config.runDirectory}/$timestamp-actual-fitness=${1.0f-mcc.toFloat().absoluteValue}.tiff"
-                            println("${Thread.currentThread().name}:Saving actual to $filename")
-                            io.save(dsActual, filename)
-                            io.save(ds, "${config.runDirectory}/$timestamp-expected.tiff")
-                        }
-
-                        if(totalDifference < 10.0f) {
-                            1.0f
-                        } else {
-                            1.0f - mcc.toFloat().absoluteValue
-                        }
-                    }.sum()
+                    }
                 }
 
                 val fitness = try {
@@ -406,7 +481,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
         ff
     }
 
-    override val registeredModules = ModuleContainer<IterableInterval<*>, Outputs.Single<IterableInterval<*>>>(
+    override val registeredModules = ModuleContainer<Image, Outputs.Single<Image>>(
         modules = mutableMapOf(
             CoreModuleType.InstructionGenerator to { environment ->
                 EffectiveProgramInstructionGenerator(environment)
@@ -445,7 +520,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
                     // Use identity func. since the probabilities
                     // of other micro mutations mean that we aren't
                     // modifying constants.
-                    constantMutationFunc = ConstantMutationFunctions.identity<IterableInterval<*>>()
+                    constantMutationFunc = ConstantMutationFunctions.identity<Image>()
                 )
             },
             CoreModuleType.FitnessContext to { environment ->
@@ -461,7 +536,7 @@ class IrisDetectorProblem: Problem<IterableInterval<*>, Outputs.Single<IterableI
             this.operationLoader,
             this.defaultValueProvider,
             this.fitnessFunctionProvider,
-            ResultAggregators.InMemoryResultAggregator<IterableInterval<*>>()
+            ResultAggregators.InMemoryResultAggregator<Image>()
         )
 
         this.environment.registerModules(this.registeredModules)
@@ -551,18 +626,25 @@ class IrisDetector {
     companion object Main {
         @JvmStatic fun main(args: Array<String>) {
             // Create a new problem instance, initialise it, and then solve it.
-            val problem = IrisDetectorProblem()
+            val backendRequested = System.getProperty("AnalysisBackend", "imagejops").toLowerCase()
+            val backend = if(backendRequested == "opencv") {
+                AnalysisBackend.OpenCV
+            } else {
+                AnalysisBackend.ImageJOps
+            }
+
+            val problem = IrisDetectorProblem(backend)
             problem.initialiseEnvironment()
             problem.initialiseModel()
             println("IrisDetector: Loading images and ground truth masks from ${problem.maxDirectories} directories")
             val solution = problem.solve()
-            val simplifier = BaseProgramSimplifier<IterableInterval<*>, Outputs.Single<IterableInterval<*>>>()
+            val simplifier = BaseProgramSimplifier<Image, Outputs.Single<Image>>()
 
             println("Results:")
 
             solution.result.evaluations.forEachIndexed { run, res ->
                 println("Run ${run + 1} (best fitness = ${res.best.fitness})")
-                println(simplifier.simplify(res.best as BaseProgram<IterableInterval<*>, Outputs.Single<IterableInterval<*>>>))
+                println(simplifier.simplify(res.best as BaseProgram<Image, Outputs.Single<Image>>))
 
                 println("\nStats (last run only):\n")
 
