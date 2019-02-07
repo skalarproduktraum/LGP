@@ -7,7 +7,7 @@ import net.imglib2.algorithm.neighborhood.HyperSphereShape
 import net.imglib2.algorithm.neighborhood.RectangleShape
 import net.imglib2.algorithm.neighborhood.Shape
 import org.bytedeco.javacpp.opencv_core
-import org.bytedeco.javacpp.opencv_core.Algorithm
+import org.bytedeco.javacpp.opencv_core.*
 import org.reflections.Reflections
 import java.io.File
 import java.lang.reflect.Method
@@ -16,8 +16,9 @@ import kotlin.random.Random
 class OpenCVOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class.java, val operationsFilter: List<String> = emptyList()) : OperationLoader<T> {
 
     class UnaryOpenCVOperation<T: Image>(val name: String, val factory: Method, val method: Method, override val parameters: List<Any> = emptyList()) : UnaryOperation<T>({ args: Arguments<T> ->
+        printlnMaybe("Running Unary OpenCV operation $name with parameters ${parameters.joinToString { it.toString() }}")
         try {
-            val algorithmInstance = factory.invoke(null)
+            val algorithmInstance = factory.invoke(null, *parameters.toTypedArray())
             val result = opencv_core.Mat()
             method.invoke(algorithmInstance, args.get(0).image, result)
 
@@ -63,7 +64,7 @@ class OpenCVOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class.jav
         }
 
         override fun mutateParameters(): UnaryOpenCVOperation<T> {
-            return UnaryOpenCVOperation<T>(name, factory, method, augmentParameters(factory))
+            return UnaryOpenCVOperation<T>(name, factory, method, augmentParameters(0, factory))
         }
 
         override fun toString(): String {
@@ -72,10 +73,11 @@ class OpenCVOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class.jav
     }
 
     class BinaryOpenCVOperation<T: Image>(val name: String, val method: Method, override val parameters: List<Any> = emptyList()): BinaryOperation<T>({ args: Arguments<T> ->
+        printlnMaybe("Running Binary OpenCV operation $name with parameters ${parameters.joinToString { it.toString() }}")
         val result = opencv_core.Mat()
-        val ret = method.invoke(args.get(0), args.get(1), result)
+        val ret = method.invoke(null, args.get(0).image, args.get(1).image, result, *parameters.toTypedArray())
 
-        result as T
+        Image.OpenCVImage(result) as T
     }
     ), ParameterMutateable<T> {
         override val representation: String
@@ -90,7 +92,7 @@ class OpenCVOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class.jav
         )
 
         override fun mutateParameters(): BinaryOpenCVOperation<T> {
-            return BinaryOpenCVOperation<T>(name, method)
+            return BinaryOpenCVOperation<T>(name, method, augmentParameters(3, method))
         }
 
         override fun toString(): String {
@@ -102,6 +104,12 @@ class OpenCVOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class.jav
             val name: String,
             val factory: Method,
             val operations: List<Method>,
+            val parameters: List<Any>
+    )
+
+    data class BinaryCandidate(
+            val name: String,
+            val operation: Method,
             val parameters: List<Any>
     )
     /**
@@ -137,7 +145,7 @@ class OpenCVOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class.jav
         val unaryOps = unaryCandidates.flatMap {
             it.operations.map { op ->
                 println("${it.name}: $op")
-                UnaryOpenCVOperation<T>(it.name, it.factory, op, augmentParameters(it.factory))
+                UnaryOpenCVOperation<T>(it.name, it.factory, op, augmentParameters(0, it.factory))
             }
         }
 
@@ -147,13 +155,15 @@ class OpenCVOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class.jav
                     && it.parameters[0].type == opencv_core.Mat::class.java
                     && it.parameters[1].type == opencv_core.Mat::class.java
                     && it.parameters[2].type == opencv_core.Mat::class.java
+                    && !it.parameters.drop(3).any { p -> p.type == opencv_core.Mat::class.java }
+                    && !it.parameters.drop(3).any { p -> p.type == opencv_core.GpuMat::class.java }
         }.map {
             println("${it.name}: $it")
-            it.name to it
+            BinaryCandidate(it.name, it, it.parameters.toList())
         }
 
         val binaryOps = binaryCandidates.map {
-            BinaryOpenCVOperation<T>(it.first, it.second)
+            BinaryOpenCVOperation<T>(it.name, it.operation, augmentParameters(3, it.operation))
         }
 
         return unaryOps + binaryOps
@@ -214,8 +224,8 @@ class OpenCVOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class.jav
             }
         }
 
-        fun augmentParameters(factory: Method): List<Any> {
-            return factory.parameters.mapIndexedNotNull { i, input ->
+        fun augmentParameters(skip: Int, factory: Method): List<Any> {
+            return factory.parameters.drop(skip).mapIndexedNotNull { i, input ->
                 printlnOnce("Requires parameter of ${input.type}")
                 when(input.type) {
                     Shape::class.java -> HyperSphereShape(Random.nextLong(0, 10))
@@ -229,6 +239,12 @@ class OpenCVOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class.jav
                     Long::class.java -> Random.nextLong(0, 5)
                     Byte::class.java -> Random.nextInt(0, 255).toByte()
                     DoubleArray::class.java -> doubleArrayOf(Random.nextDouble(), Random.nextDouble())
+
+                    opencv_core.Mat::class.java -> {
+                        val m = opencv_core.Mat(4, 4, CV_8U)
+                        randn(m, Mat.zeros(4, 4, CV_8U).asMat(), Mat.ones(4, 4, CV_8U).asMat())
+                        m
+                    }
 
                     // fall-through, show error
                     else -> {
