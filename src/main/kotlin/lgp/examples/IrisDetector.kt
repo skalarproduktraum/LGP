@@ -136,7 +136,7 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
                     Image.ImgLib2Image(rai as IterableInterval<*>)
                 }
                 AnalysisBackend.OpenCV -> {
-                    val m = opencv_core.Mat(imageWidth.toInt(), imageHeight.toInt(), opencv_core.CV_8U)
+                    val m = opencv_core.Mat(imageWidth.toInt(), imageHeight.toInt(), opencv_core.CV_32F)
                     Image.OpenCVImage(m)
                 }
             }
@@ -256,8 +256,8 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
             }
 
             AnalysisBackend.OpenCV -> {
-                defaultImage = Image.OpenCVImage(opencv_core.Mat.zeros(imageWidth.toInt(), imageHeight.toInt(), opencv_core.CV_8U).asMat())
-                whiteImage = Image.OpenCVImage(opencv_core.Mat.ones(imageWidth.toInt(), imageHeight.toInt(), opencv_core.CV_8U).asMat())
+                defaultImage = Image.OpenCVImage(opencv_core.Mat.zeros(imageWidth.toInt(), imageHeight.toInt(), opencv_core.CV_32F).asMat())
+                whiteImage = Image.OpenCVImage(opencv_core.Mat.ones(imageWidth.toInt(), imageHeight.toInt(), opencv_core.CV_32F).asMat())
             }
         }
     }
