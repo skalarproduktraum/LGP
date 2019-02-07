@@ -1,8 +1,7 @@
 package lgp.core.environment.operations
 
 import lgp.core.modules.ModuleInformation
-import lgp.core.program.instructions.*
-import lgp.core.program.registers.Arguments
+import lgp.core.program.instructions.Operation
 import net.imglib2.algorithm.neighborhood.HyperSphereShape
 import net.imglib2.algorithm.neighborhood.RectangleShape
 import net.imglib2.algorithm.neighborhood.Shape
@@ -14,91 +13,6 @@ import java.lang.reflect.Method
 import kotlin.random.Random
 
 class OpenCVOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class.java, val operationsFilter: List<String> = emptyList()) : OperationLoader<T> {
-
-    class UnaryOpenCVOperation<T: Image>(val name: String, val factory: Method, val method: Method, override val parameters: List<Any> = emptyList()) : UnaryOperation<T>({ args: Arguments<T> ->
-        printlnMaybe("Running Unary OpenCV operation $name with parameters ${parameters.joinToString { it.toString() }}")
-        try {
-            val algorithmInstance = factory.invoke(null, *parameters.toTypedArray())
-            val result = opencv_core.Mat()
-            method.invoke(algorithmInstance, args.get(0).image, result)
-
-            Image.OpenCVImage(result) as T
-        } catch (e: Exception) {
-            printlnMaybe("${Thread.currentThread().name}: Execution of unary $name failed, returning input image.")
-            printlnMaybe("${Thread.currentThread().name}: Parameters were: ${parameters.joinToString(",")}")
-            if(!silent) {
-                e.printStackTrace()
-            }
-
-            args.get(0)
-        }
-    }), ParameterMutateable<T> {
-        /**
-         * A way to express an operation in a textual format.
-         */
-        override val representation: String
-            get() = name
-
-        /**
-         * Provides a string representation of this operation.
-         *
-         * @param operands The registers used by the [Instruction] that this [Operation] belongs to.
-         * @param destination The destination register of the [Instruction] this [Operation] belongs to.
-         */
-        override fun toString(operands: List<RegisterIndex>, destination: RegisterIndex): String {
-            return "r[$destination] = ops.run(\"$representation\", r[${ operands[0] }] ${parametersToCode(parameters)})"
-        }
-
-        /**
-         * Provides information about the module.
-         */
-        override val information = ModuleInformation(
-                description = ""
-        )
-
-        override fun execute(arguments: Arguments<T>): T {
-            return when {
-                arguments.size() != this.arity.number -> throw ArityException("UnaryOperation takes 1 argument but was given ${arguments.size()}.")
-                else -> this.func(arguments)
-            }
-        }
-
-        override fun mutateParameters(): UnaryOpenCVOperation<T> {
-            return UnaryOpenCVOperation<T>(name, factory, method, augmentParameters(0, factory))
-        }
-
-        override fun toString(): String {
-            return representation
-        }
-    }
-
-    class BinaryOpenCVOperation<T: Image>(val name: String, val method: Method, override val parameters: List<Any> = emptyList()): BinaryOperation<T>({ args: Arguments<T> ->
-        printlnMaybe("Running Binary OpenCV operation $name with parameters ${parameters.joinToString { it.toString() }}")
-        val result = opencv_core.Mat()
-        val ret = method.invoke(null, args.get(0).image, args.get(1).image, result, *parameters.toTypedArray())
-
-        Image.OpenCVImage(result) as T
-    }
-    ), ParameterMutateable<T> {
-        override val representation: String
-            get() = name
-
-        override fun toString(operands: List<RegisterIndex>, destination: RegisterIndex): String {
-            return "r[$destination] = ops.run(\"$representation\", r[${operands[0]}], r[${operands[1]}] ${parametersToCode(parameters)})"
-        }
-
-        override val information = ModuleInformation(
-                description = ""
-        )
-
-        override fun mutateParameters(): BinaryOpenCVOperation<T> {
-            return BinaryOpenCVOperation<T>(name, method, augmentParameters(3, method))
-        }
-
-        override fun toString(): String {
-            return representation
-        }
-    }
 
     data class UnaryCandidate(
             val name: String,

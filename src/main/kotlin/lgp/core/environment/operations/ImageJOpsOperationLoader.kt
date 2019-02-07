@@ -1,11 +1,8 @@
 package lgp.core.environment.operations
 
 import lgp.core.modules.ModuleInformation
-import lgp.core.program.instructions.*
-import lgp.core.program.registers.Arguments
+import lgp.core.program.instructions.Operation
 import lgp.examples.IrisDetectorProblem
-import net.imagej.DefaultDataset
-import net.imagej.ImgPlus
 import net.imagej.ops.OpInfo
 import net.imagej.ops.OpService
 import net.imagej.ops.special.BinaryOp
@@ -14,11 +11,8 @@ import net.imglib2.*
 import net.imglib2.algorithm.neighborhood.HyperSphereShape
 import net.imglib2.algorithm.neighborhood.RectangleShape
 import net.imglib2.algorithm.neighborhood.Shape
-import net.imglib2.img.Img
-import net.imglib2.img.array.ArrayImgFactory
 import net.imglib2.outofbounds.OutOfBoundsFactory
 import net.imglib2.outofbounds.OutOfBoundsPeriodicFactory
-import net.imglib2.type.logic.BitType
 import net.imglib2.type.numeric.IntegerType
 import net.imglib2.type.numeric.NumericType
 import net.imglib2.type.numeric.RealType
@@ -31,206 +25,6 @@ import kotlin.random.Random
 
 class ImageJOpsOperationLoader<T: Image>(val typeFilter: Class<*>, val opsFilter: List<String> = emptyList(), opService: OpService? = null) : OperationLoader<T> {
 
-    class UnaryOpsOperation<T: Image>(val opInfo: OpInfo, override val parameters: List<Any> = emptyList(), val requiresInOut: Boolean = false) : UnaryOperation<T>({ args: Arguments<T> ->
-        try {
-            val start = System.nanoTime()
-            printlnMaybe("${Thread.currentThread().name}: Running unary op ${opInfo.name} (${opInfo.inputs().joinToString { it.type.simpleName }} -> ${opInfo.outputs().joinToString { it.type.simpleName }}), parameters: ${parameters.joinToString(",")}")
-            val arguments = mutableListOf<Any>()
-
-            if(requiresInOut) {
-                val ii = args.get(0).image as IterableInterval<*>
-                val factory = if(opInfo.name.startsWith("threshold.")) {
-                    ArrayImgFactory(BitType())
-                } else {
-                    ArrayImgFactory(FloatType())
-                }
-
-                val output = factory.create(ii.dimension(0), ii.dimension(1))
-
-                arguments.add(output)
-            }
-
-            arguments.add(args.get(0).image)
-            arguments.addAll(parameters)
-
-            val opsOutput = ops.run(opInfo.name, *(arguments.toTypedArray()))
-            val result = if(opInfo.name.startsWith("threshold.")) {
-                ops.run("convert.float32", arguments.get(0))
-            } else {
-                opsOutput
-            }
-            val duration = System.nanoTime() - start
-            printlnMaybe("${Thread.currentThread().name}: ${opInfo.name} took ${duration/10e5}ms")
-
-            try {
-                if (debugOps) {
-//                    ImageJFunctions.showFloat(result as RandomAccessibleInterval<FloatType>, opInfo.name)
-//                    ui.show(opInfo.name, result)
-                    val filename = "${Thread.currentThread().name}-${System.currentTimeMillis()}-unary-${opInfo.name}.tiff"
-                    println("Saving result $result to $filename via ${io.getSaver(result, filename)}")
-                    val ds = DefaultDataset(context, ImgPlus.wrap(result as Img<RealType<*>>))
-                    io.save(ds, filename)
-                }
-            } catch (e: Exception) {
-                System.err.println("Exception occured while showing debug image: ${e.cause}")
-                e.printStackTrace()
-            }
-
-            Image.ImgLib2Image(result as IterableInterval<*>) as T
-        } catch (e: Exception) {
-            printlnMaybe("${Thread.currentThread().name}: Execution of unary ${opInfo.name} failed, returning input image.")
-            printlnMaybe("${Thread.currentThread().name}: Parameters were: ${parameters.joinToString(",")}")
-            if(!silent) {
-                e.printStackTrace()
-            }
-            /*val f = if(opInfo.name.startsWith("threshold.")) {
-                CellImgFactory(BitType(), 2)
-            } else {
-                CellImgFactory(FloatType(), 2)
-            }
-
-            val input = args.get(0) as IterableInterval<*>
-            val img = f.create(input.dimension(0), input.dimension(1))
-
-            img as T
-            */
-            args.get(0)
-        }
-    }), ParameterMutateable<T> {
-        /**
-         * A way to express an operation in a textual format.
-         */
-        override val representation: String
-            get() = opInfo.name
-
-        /**
-         * Provides a string representation of this operation.
-         *
-         * @param operands The registers used by the [Instruction] that this [Operation] belongs to.
-         * @param destination The destination register of the [Instruction] this [Operation] belongs to.
-         */
-        override fun toString(operands: List<RegisterIndex>, destination: RegisterIndex): String {
-            return "r[$destination] = ops.run(\"$representation\", r[${ operands[0] }] ${parametersToCode(parameters)})"
-        }
-
-        /**
-         * Provides information about the module.
-         */
-        override val information = ModuleInformation(
-            description = ops.help(opInfo.toString())
-        )
-
-        override fun execute(arguments: Arguments<T>): T {
-            return when {
-                arguments.size() != this.arity.number -> throw ArityException("UnaryOperation takes 1 argument but was given ${arguments.size()}.")
-                else -> this.func(arguments)
-            }
-        }
-
-        override fun mutateParameters(): UnaryOpsOperation<T> {
-//            println("Old parameters: ${parameters.joinToString(", ")}")
-            val newParameters = augmentParameters(opInfo)
-//            println("New parameters: ${newParameters.joinToString(", ")}")
-            return UnaryOpsOperation<T>(opInfo, newParameters, requiresInOut)
-        }
-
-        override fun toString(): String {
-            return representation
-        }
-    }
-
-    class BinaryOpsOperation<T: Image>(val opInfo: OpInfo, override val parameters: List<Any> = emptyList(), val requiresInOut: Boolean = false): BinaryOperation<T>({ args: Arguments<T> ->
-//        val output = args.get(0)
-//        val op = ops.module(opInfo.name, args.get(0), args.get(1))
-//        op.run()
-        try {
-            val start = System.nanoTime()
-            printlnMaybe("${Thread.currentThread().name}: Running binary op ${opInfo.name} (${opInfo.inputs().joinToString { it.type.simpleName }} -> ${opInfo.outputs().joinToString { it.type.simpleName }}), parameters: ${parameters.joinToString(",")}")
-            val arguments = mutableListOf<Any?>()
-
-            if(requiresInOut) {
-                val ii = args.get(0).image as IterableInterval<*>
-                val factory = if(opInfo.name.startsWith("threshold.")) {
-                    ArrayImgFactory(BitType())
-                } else {
-                    ArrayImgFactory(FloatType())
-                }
-
-                val output = if(opInfo.name in nonConformantOps) {
-                    null
-                } else {
-                    factory.create(ii.dimension(0), ii.dimension(1))
-                }
-
-                arguments.add(output)
-            }
-
-            arguments.add(args.get(0)!!.image)
-            arguments.add(args.get(1)!!.image)
-            arguments.addAll(parameters)
-
-            val result = ops.run(opInfo.name, *(arguments.toTypedArray()))
-
-            val duration = System.nanoTime() - start
-            printlnMaybe("${Thread.currentThread().name}: ${opInfo.name} took ${duration/10e5}ms")
-            try {
-                if (debugOps) {
-//                    ImageJFunctions.showFloat(result as RandomAccessibleInterval<FloatType>, opInfo.name)
-//                    ui.show(opInfo.name, result)
-                    val filename = "${Thread.currentThread().name}-${System.currentTimeMillis()}-binary-${opInfo.name}.tiff"
-                    println("Saving result $result to $filename via ${io.getSaver(result, filename)}")
-                    val ds = DefaultDataset(context, ImgPlus.wrap(result as Img<RealType<*>>))
-                    io.save(ds, filename)
-                }
-            } catch (e: Exception) {
-                System.err.println("Exception occured while showing debug image: ${e.cause}")
-                e.printStackTrace()
-            }
-
-            Image.ImgLib2Image(result as IterableInterval<*>) as T
-        } catch (e: Exception) {
-            printlnMaybe("${Thread.currentThread().name}: Execution of binary ${opInfo.name} failed, returning RHS input image.")
-            printlnMaybe("${Thread.currentThread().name}: Parameters were: ${parameters.joinToString(",")}")
-            if(!silent) {
-                e.printStackTrace()
-            }
-            /*
-            val f = CellImgFactory(FloatType(), 2)
-            val input = args.get(0) as IterableInterval<*>
-            val img = f.create(input.dimension(0), input.dimension(1))
-
-            img as T
-            */
-            args.get(1)
-        }
-    }
-    ), ParameterMutateable<T> {
-        override val representation: String
-        get() = opInfo.name
-
-        override fun toString(operands: List<RegisterIndex>, destination: RegisterIndex): String {
-            return "r[$destination] = ops.run(\"$representation\", r[${operands[0]}], r[${operands[1]}] ${parametersToCode(parameters)})"
-        }
-
-        override val information = ModuleInformation(
-            description = ops.help(opInfo.name)
-        )
-
-        override fun mutateParameters(): BinaryOpsOperation<T> {
-//            println("Old parameters: ${parameters.joinToString(", ")}")
-            val newParameters = augmentParameters(opInfo)
-//            println("New parameters: ${newParameters.joinToString(", ")}")
-            return BinaryOpsOperation<T>(opInfo, newParameters, requiresInOut)
-        }
-
-        override fun toString(): String {
-            return representation
-        }
-
-        companion object {
-            val nonConformantOps = listOf("math.divide", "math.subtract", "math.add", "math.multiply")
-        }
-    }
     enum class OpArity { Unary, Binary, Unknown }
     /**
      * Loads a component.
