@@ -12,8 +12,7 @@ import net.imglib2.IterableInterval
 import net.imglib2.img.Img
 import net.imglib2.img.array.ArrayImgFactory
 import net.imglib2.type.logic.BitType
-import net.imglib2.type.numeric.RealType
-import net.imglib2.type.numeric.real.FloatType
+import net.imglib2.type.numeric.integer.UnsignedByteType
 
 class BinaryOpsOperation<T: Image>(val opInfo: OpInfo, override val parameters: List<Any> = emptyList(), val requiresInOut: Boolean = false): BinaryOperation<T>({ args: Arguments<T> ->
 //        val output = args.get(0)
@@ -29,7 +28,7 @@ class BinaryOpsOperation<T: Image>(val opInfo: OpInfo, override val parameters: 
             val factory = if(opInfo.name.startsWith("threshold.")) {
                 ArrayImgFactory(BitType())
             } else {
-                ArrayImgFactory(FloatType())
+                ArrayImgFactory(UnsignedByteType())
             }
 
             val output = if(opInfo.name in nonConformantOps) {
@@ -41,8 +40,8 @@ class BinaryOpsOperation<T: Image>(val opInfo: OpInfo, override val parameters: 
             arguments.add(output)
         }
 
-        arguments.add(args.get(0)!!.image)
-        arguments.add(args.get(1)!!.image)
+        arguments.add(args.get(0).image)
+        arguments.add(args.get(1).image)
         arguments.addAll(parameters)
 
         val result = ImageJOpsOperationLoader.ops.run(opInfo.name, *(arguments.toTypedArray()))
@@ -55,7 +54,7 @@ class BinaryOpsOperation<T: Image>(val opInfo: OpInfo, override val parameters: 
 //                    ui.show(opInfo.name, result)
                 val filename = "${Thread.currentThread().name}-${System.currentTimeMillis()}-binary-${opInfo.name}.tiff"
                 println("Saving result $result to $filename via ${ImageJOpsOperationLoader.io.getSaver(result, filename)}")
-                val ds = DefaultDataset(ImageJOpsOperationLoader.context, ImgPlus.wrap(result as Img<RealType<*>>))
+                val ds = DefaultDataset(ImageJOpsOperationLoader.context, ImgPlus.wrap(result as Img<UnsignedByteType>))
                 ImageJOpsOperationLoader.io.save(ds, filename)
             }
         } catch (e: Exception) {

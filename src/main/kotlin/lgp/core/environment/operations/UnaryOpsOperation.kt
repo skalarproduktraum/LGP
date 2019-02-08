@@ -14,7 +14,7 @@ import net.imglib2.img.Img
 import net.imglib2.img.array.ArrayImgFactory
 import net.imglib2.type.logic.BitType
 import net.imglib2.type.numeric.RealType
-import net.imglib2.type.numeric.real.FloatType
+import net.imglib2.type.numeric.integer.UnsignedByteType
 
 class UnaryOpsOperation<T: Image>(val opInfo: OpInfo, override val parameters: List<Any> = emptyList(), val requiresInOut: Boolean = false) : UnaryOperation<T>({ args: Arguments<T> ->
     try {
@@ -27,7 +27,7 @@ class UnaryOpsOperation<T: Image>(val opInfo: OpInfo, override val parameters: L
             val factory = if(opInfo.name.startsWith("threshold.")) {
                 ArrayImgFactory(BitType())
             } else {
-                ArrayImgFactory(FloatType())
+                ArrayImgFactory(UnsignedByteType())
             }
 
             val output = factory.create(ii.dimension(0), ii.dimension(1))
@@ -40,7 +40,7 @@ class UnaryOpsOperation<T: Image>(val opInfo: OpInfo, override val parameters: L
 
         val opsOutput = ImageJOpsOperationLoader.ops.run(opInfo.name, *(arguments.toTypedArray()))
         val result = if(opInfo.name.startsWith("threshold.")) {
-            ImageJOpsOperationLoader.ops.run("convert.float32", arguments.get(0))
+            ImageJOpsOperationLoader.ops.run("convert.uint8", arguments.get(0))
         } else {
             opsOutput
         }
