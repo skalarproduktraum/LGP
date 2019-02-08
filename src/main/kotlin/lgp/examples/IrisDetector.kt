@@ -13,7 +13,7 @@ import lgp.core.environment.dataset.*
 import lgp.core.environment.operations.AnalysisBackend
 import lgp.core.environment.operations.Image
 import lgp.core.environment.operations.ImageJOpsOperationLoader
-import lgp.core.environment.operations.OpenCVOperationsLoader
+import lgp.core.environment.operations.OpenCVMinimalOperationsLoader
 import lgp.core.evolution.*
 import lgp.core.evolution.fitness.FitnessCase
 import lgp.core.evolution.fitness.FitnessFunctions
@@ -39,6 +39,7 @@ import net.imglib2.type.numeric.real.DoubleType
 import net.imglib2.type.numeric.real.FloatType
 import net.imglib2.view.Views
 import org.bytedeco.javacpp.opencv_core
+import org.bytedeco.javacpp.opencv_core.CV_32F
 import org.bytedeco.javacpp.opencv_imgcodecs.imread
 import org.scijava.Context
 import org.scijava.io.IOService
@@ -136,7 +137,7 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
                     Image.ImgLib2Image(rai as IterableInterval<*>)
                 }
                 AnalysisBackend.OpenCV -> {
-                    val m = opencv_core.Mat(imageWidth.toInt(), imageHeight.toInt(), opencv_core.CV_32F)
+                    val m = opencv_core.Mat(imageHeight.toInt(), imageWidth.toInt(), opencv_core.CV_32F)
                     Image.OpenCVImage(m)
                 }
             }
@@ -172,9 +173,24 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
             }
 
             fun opencvLoader(filename: String, singleChannel: Boolean = false): Image {
-                val m = imread(filename)
+                val img = imread(filename)
 
-                return Image.OpenCVImage(m)
+
+                val final = if(singleChannel) {
+                    val v = opencv_core.MatVector(3)
+                    opencv_core.split(img, v)
+
+                    val m = opencv_core.Mat()
+                    v.get(0).convertTo(m, CV_32F)
+
+                    Image.OpenCVImage(m)
+                } else {
+                    val m = opencv_core.Mat()
+                    img.convertTo(m, CV_32F)
+                    Image.OpenCVImage(m)
+                }
+                println("Loaded ${final.image}")
+                return final
             }
 
             fun load(filename: String, singleChannel: Boolean): Image {
@@ -199,7 +215,7 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
                 val maskFileName = "OperatorA_${filename.parent.substringAfterLast("/")}-${AB}_${String.format("%02d", id)}.tiff"
                 val f = "$inputDirectory/IRISSEG-EP-Masks/masks/iitd/$maskFileName"
 
-                val img = load(f, false)
+                val img = load(f, true)
                 Targets.Single(img)
             }
 
@@ -218,7 +234,7 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
             )
         }
         AnalysisBackend.OpenCV -> {
-            OpenCVOperationsLoader<Image>()
+            OpenCVMinimalOperationsLoader<Image>()
         }
     }
 
@@ -256,8 +272,8 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
             }
 
             AnalysisBackend.OpenCV -> {
-                defaultImage = Image.OpenCVImage(opencv_core.Mat.zeros(imageWidth.toInt(), imageHeight.toInt(), opencv_core.CV_32F).asMat())
-                whiteImage = Image.OpenCVImage(opencv_core.Mat.ones(imageWidth.toInt(), imageHeight.toInt(), opencv_core.CV_32F).asMat())
+                defaultImage = Image.OpenCVImage(opencv_core.Mat.zeros(imageHeight.toInt(), imageWidth.toInt(), opencv_core.CV_32F).asMat())
+                whiteImage = Image.OpenCVImage(opencv_core.Mat.ones(imageHeight.toInt(), imageWidth.toInt(), opencv_core.CV_32F).asMat())
             }
         }
     }
@@ -445,7 +461,75 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
                         }
 
                         AnalysisBackend.OpenCV -> {
-                            0.0f
+                            cases.zip(outputs).map { (case, actual) ->
+                                val actualImage = actual.value.image as opencv_core.Mat
+                                val expectedImage = (case.target as Targets.Single).value.image as opencv_core.Mat
+
+                                var trueNegatives = 0L
+                                var falseNegatives = 0L
+                                var truePositives = 0L
+                                var falsePositives = 0L
+
+                                var prev = Float.NaN
+                                var totalDifference = 0.0f
+
+                                for(y in 0 until expectedImage.rows()) {
+                                    for(x in 0 until expectedImage.cols()) {
+                                        val actualValue = actualImage.ptr(y, x).float
+                                        val expectedValue = expectedImage.ptr(y, x).float
+
+                                        if (prev.isNaN()) {
+                                            prev = actualValue
+                                        }
+
+                                        totalDifference += (prev - actualValue).absoluteValue
+
+                                        prev = actualValue
+
+                                        if (expectedValue < 254.9f && actualValue < 1.0f) {
+                                            trueNegatives++
+                                        }
+
+                                        if (expectedValue > 254.9f && actualValue < 1.0f) {
+                                            falseNegatives++
+                                        }
+
+                                        if (expectedValue > 254.9f && actualValue >= 1.0f) {
+                                            truePositives++
+                                        }
+
+                                        if (expectedValue < 254.9f && actualValue >= 1.0f) {
+                                            falsePositives++
+                                        }
+                                    }
+                                }
+
+                                val denom = (truePositives + falsePositives) * (truePositives + falseNegatives) * (trueNegatives + falsePositives) * (trueNegatives + falseNegatives)
+                                val mccDenom = if (denom == 0L) {
+                                    1.0
+                                } else {
+                                    sqrt(denom.toDouble())
+                                }
+
+                                val mcc = (truePositives * trueNegatives - falsePositives * falseNegatives) / mccDenom
+                                println("${Thread.currentThread().name}:MCC=$mcc, TP=$truePositives, FP=$falsePositives, TN=$trueNegatives, FN=$falseNegatives, delta=$totalDifference")
+
+                                if (1.0f - mcc.toFloat().absoluteValue < 0.4f) {
+//                                    val ds = DefaultDataset(context, ImgPlus.wrap(raiExpected as Img<RealType<*>>))
+//                                    val dsActual = DefaultDataset(context, ImgPlus.wrap(converted as Img<RealType<*>>))
+//                                    val timestamp = System.currentTimeMillis()
+//                                    val filename = "${config.runDirectory}/$timestamp-actual-fitness=${1.0f - mcc.toFloat().absoluteValue}.tiff"
+//                                    println("${Thread.currentThread().name}:Saving actual to $filename")
+//                                    io.save(dsActual, filename)
+//                                    io.save(ds, "${config.runDirectory}/$timestamp-expected.tiff")
+                                }
+
+                                if (totalDifference < 10.0f || totalDifference == Float.NaN) {
+                                    1.0f
+                                } else {
+                                    1.0f - mcc.toFloat().absoluteValue
+                                }
+                            }.sum()
                         }
                     }
                 }
