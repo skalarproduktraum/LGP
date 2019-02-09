@@ -97,7 +97,7 @@ math.zero
 #threshold.minError
 #threshold.minimum
 #threshold.moments
-threshold.otsu
+#threshold.otsu
 #threshold.percentile
 #threshold.renyiEntropy
 #threshold.rosin
