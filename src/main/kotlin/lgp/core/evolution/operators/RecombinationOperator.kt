@@ -43,7 +43,8 @@ abstract class RecombinationOperator<TProgram, TOutput : Output<TProgram>>(
 class LinearCrossover<TProgram, TOutput : Output<TProgram>>(environment: Environment<TProgram, TOutput>,
                          val maximumSegmentLength: Int,
                          val maximumCrossoverDistance: Int,
-                         val maximumSegmentLengthDifference: Int
+                         val maximumSegmentLengthDifference: Int,
+                         val effectiveCrossover: Boolean = false
 ) : RecombinationOperator<TProgram, TOutput>(environment) {
 
     private val random = this.environment.randomState
@@ -62,8 +63,25 @@ class LinearCrossover<TProgram, TOutput : Output<TProgram>>(environment: Environ
         // First make sure that the mother is shorter than the father, since we are treating
         // the mother as gp[1] and the father as gp[2].
         // TODO: Is there a better way to swap in Kotlin?
-        var ind1 = mother.instructions
-        var ind2 = father.instructions
+        var ind1 = if(effectiveCrossover) {
+            mother.effectiveInstructions
+        } else {
+            mother.instructions
+        }
+
+        var ind2 = if(effectiveCrossover) {
+            father.effectiveInstructions
+        } else {
+            father.instructions
+        }
+
+        if(effectiveCrossover && ind1.size == 0) {
+            ind1 = mother.instructions
+        }
+
+        if(effectiveCrossover && ind2.size == 0) {
+            ind2 = father.instructions
+        }
 
         if (ind1.size > ind2.size) {
             val temp = ind1

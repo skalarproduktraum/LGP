@@ -143,7 +143,8 @@ public class SimpleFunctionProblem extends Problem<Double, Outputs.Single<Double
                         environment,
                         6,           // maximumSegmentLength
                         5,           // maximumCrossoverDistance
-                        3            // maximumSegmentLengthDifference
+                        3,           // maximumSegmentLengthDifference
+                        false
                 )
         );
         modules.put(
