@@ -74,7 +74,7 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
 
     override val description = Description("f(x) = x^2 + 2x + 2\n\trange = [-10:10:0.5]")
 
-    val runDirectory = "${InetAddress.getLocalHost().hostName}-" + SimpleDateFormat("yyyy-MM-dd_HH.mm.ss_SSS").format(Date())
+    val runDirectory = "${System.getProperty("RunDirectoryBase", "")}/${InetAddress.getLocalHost().hostName}-" + SimpleDateFormat("yyyy-MM-dd_HH.mm.ss_SSS").format(Date())
 
     override val configLoader = object : ConfigurationLoader {
         override val information = ModuleInformation("Overrides default configuration for this problem.")
@@ -94,13 +94,13 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
             config.constantsRate = 0.0
             config.constants = listOf("0.0", "1.0", "2.0")
             config.numCalculationRegisters = 4
-            config.populationSize = 80
+            config.populationSize = 200
             config.generations = 1000
             config.numFeatures = 1
             config.microMutationRate = 0.7
-            config.crossoverRate = 0.75
-            config.macroMutationRate = 0.7
-            config.numOffspring = 5
+            config.crossoverRate = 0.25
+            config.macroMutationRate = 0.5
+            config.numOffspring = 20
             config.runDirectory = runDirectory
 
             return config
@@ -442,7 +442,7 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
                                 val mcc = (truePositives * trueNegatives - falsePositives * falseNegatives) / mccDenom
                                 println("${Thread.currentThread().name}:MCC=$mcc, TP=$truePositives, FP=$falsePositives, TN=$trueNegatives, FN=$falseNegatives, delta=$totalDifference")
 
-                                if (1.0f - mcc.toFloat().absoluteValue < 0.4f) {
+                                if (1.0f - mcc.toFloat().absoluteValue < 0.3f) {
                                     val ds = DefaultDataset(context, ImgPlus.wrap(raiExpected as Img<UnsignedByteType>))
                                     val dsActual = DefaultDataset(context, ImgPlus.wrap(converted as Img<UnsignedByteType>))
                                     val timestamp = System.currentTimeMillis()
@@ -584,9 +584,10 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
             CoreModuleType.RecombinationOperator to { environment ->
                 LinearCrossover(
                     environment,
-                    maximumSegmentLength = 6,
+                    maximumSegmentLength = 5,
                     maximumCrossoverDistance = 5,
-                    maximumSegmentLengthDifference = 3
+                    maximumSegmentLengthDifference = 3,
+                    effectiveCrossover = true
                 )
             },
             CoreModuleType.MacroMutationOperator to { environment ->
@@ -627,12 +628,12 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
     }
 
     override fun initialiseModel() {
-//        this.model = Models.IslandMigration(this.environment,
-//            Models.IslandMigration.IslandMigrationOptions(
-//                numIslands = 4,
-//                migrationInterval = 10,
-//                migrationSize = 3))
-        this.model = Models.SteadyState(this.environment)
+        this.model = Models.IslandMigration(this.environment,
+            Models.IslandMigration.IslandMigrationOptions(
+                numIslands = 4,
+                migrationInterval = 10,
+                migrationSize = 3))
+//        this.model = Models.SteadyState(this.environment)
     }
 
     override fun solve(): IrisDetectorSolution {
