@@ -2,5 +2,6 @@ package lgp.core.environment.operations
 
 enum class AnalysisBackend {
     ImageJOps,
-    OpenCV
+    OpenCV,
+    OpenCVCUDA
 }

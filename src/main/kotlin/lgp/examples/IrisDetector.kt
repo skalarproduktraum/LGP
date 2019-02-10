@@ -10,10 +10,7 @@ import lgp.core.environment.config.Configuration
 import lgp.core.environment.config.ConfigurationLoader
 import lgp.core.environment.constants.GenericConstantLoader
 import lgp.core.environment.dataset.*
-import lgp.core.environment.operations.AnalysisBackend
-import lgp.core.environment.operations.Image
-import lgp.core.environment.operations.ImageJOpsOperationLoader
-import lgp.core.environment.operations.OpenCVMinimalOperationsLoader
+import lgp.core.environment.operations.*
 import lgp.core.evolution.*
 import lgp.core.evolution.fitness.FitnessCase
 import lgp.core.evolution.fitness.FitnessFunctions
@@ -40,7 +37,9 @@ import net.imglib2.type.numeric.real.DoubleType
 import net.imglib2.view.Views
 import org.bytedeco.javacpp.opencv_core
 import org.bytedeco.javacpp.opencv_core.CV_32F
+import org.bytedeco.javacpp.opencv_core.CV_8U
 import org.bytedeco.javacpp.opencv_imgcodecs.imread
+import org.opencv.core.Mat
 import org.scijava.Context
 import org.scijava.io.IOService
 import org.scijava.service.SciJavaService
@@ -140,6 +139,12 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
                     val m = opencv_core.Mat(imageHeight.toInt(), imageWidth.toInt(), opencv_core.CV_32F)
                     Image.OpenCVImage(m)
                 }
+                AnalysisBackend.OpenCVCUDA -> {
+                    val m = opencv_core.Mat(imageHeight.toInt(), imageWidth.toInt(), opencv_core.CV_8U)
+                    val gpuM = opencv_core.GpuMat(m)
+                    gpuM.upload(m)
+                    Image.OpenCVGPUImage(gpuM)
+                }
             }
 
         }
@@ -193,10 +198,37 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
                 return final
             }
 
+            fun opencvGPULoader(filename: String, singleChannel: Boolean = false): Image {
+                val img = imread(filename)
+
+
+                val final = if(singleChannel) {
+                    val v = opencv_core.MatVector(3)
+                    opencv_core.split(img, v)
+
+                    val m = opencv_core.Mat()
+                    v.get(0).convertTo(m, CV_8U)
+
+                    val gpuM = opencv_core.GpuMat(m)
+                    gpuM.upload(m)
+
+                    Image.OpenCVGPUImage(gpuM)
+                } else {
+                    val m = opencv_core.Mat()
+                    img.convertTo(m, CV_8U)
+                    val gpuM = opencv_core.GpuMat(m)
+                    gpuM.upload(m)
+                    Image.OpenCVGPUImage(gpuM)
+                }
+                println("Loaded ${final.image}")
+                return final
+            }
+
             fun load(filename: String, singleChannel: Boolean): Image {
                 return when(backend) {
                     AnalysisBackend.ImageJOps -> opsLoader(filename, singleChannel)
                     AnalysisBackend.OpenCV -> opencvLoader(filename, singleChannel)
+                    AnalysisBackend.OpenCVCUDA -> opencvGPULoader(filename, singleChannel)
                 }
             }
 
@@ -236,6 +268,9 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
         AnalysisBackend.OpenCV -> {
             OpenCVMinimalOperationsLoader<Image>()
         }
+        AnalysisBackend.OpenCVCUDA -> {
+            OpenCVCUDAOperationsLoader<Image>()
+        }
     }
 
     val defaultImage: Image
@@ -274,6 +309,20 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
             AnalysisBackend.OpenCV -> {
                 defaultImage = Image.OpenCVImage(opencv_core.Mat.zeros(imageHeight.toInt(), imageWidth.toInt(), opencv_core.CV_32F).asMat())
                 whiteImage = Image.OpenCVImage(opencv_core.Mat.ones(imageHeight.toInt(), imageWidth.toInt(), opencv_core.CV_32F).asMat())
+            }
+
+            AnalysisBackend.OpenCVCUDA -> {
+                val black = opencv_core.Mat.zeros(imageHeight.toInt(), imageWidth.toInt(), CV_8U).asMat()
+                val white = opencv_core.Mat.ones(imageHeight.toInt(), imageWidth.toInt(), CV_8U).asMat()
+
+                val blackGPU = opencv_core.GpuMat(black)
+                val whiteGPU = opencv_core.GpuMat(white)
+
+                blackGPU.upload(black)
+                whiteGPU.upload(white)
+
+                defaultImage = Image.OpenCVGPUImage(blackGPU)
+                whiteImage = Image.OpenCVGPUImage(whiteGPU)
             }
         }
     }
@@ -330,7 +379,13 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
                         }
 
                         AnalysisBackend.OpenCV -> {
-                            0.0f
+                            // TODO: Implement for OpenCV
+                            1.0f
+                        }
+
+                        AnalysisBackend.OpenCVCUDA -> {
+                            // TODO: Implement for OpenCV CUDA
+                            1.0f
                         }
                     }
                 }
@@ -369,6 +424,8 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
                         }
 
                         AnalysisBackend.OpenCV -> TODO()
+
+                        AnalysisBackend.OpenCVCUDA -> TODO()
                     }
                 }
 
@@ -477,6 +534,85 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
                                     for(x in 0 until expectedImage.cols()) {
                                         val actualValue = actualImage.ptr(y, x).float
                                         val expectedValue = expectedImage.ptr(y, x).float
+
+                                        if (prev.isNaN()) {
+                                            prev = actualValue
+                                        }
+
+                                        totalDifference += (prev - actualValue).absoluteValue
+
+                                        prev = actualValue
+
+                                        if (expectedValue < 254.9f && actualValue < 1.0f) {
+                                            trueNegatives++
+                                        }
+
+                                        if (expectedValue > 254.9f && actualValue < 1.0f) {
+                                            falseNegatives++
+                                        }
+
+                                        if (expectedValue > 254.9f && actualValue >= 1.0f) {
+                                            truePositives++
+                                        }
+
+                                        if (expectedValue < 254.9f && actualValue >= 1.0f) {
+                                            falsePositives++
+                                        }
+                                    }
+                                }
+
+                                val denom = (truePositives + falsePositives) * (truePositives + falseNegatives) * (trueNegatives + falsePositives) * (trueNegatives + falseNegatives)
+                                val mccDenom = if (denom == 0L) {
+                                    1.0
+                                } else {
+                                    sqrt(denom.toDouble())
+                                }
+
+                                val mcc = (truePositives * trueNegatives - falsePositives * falseNegatives) / mccDenom
+                                println("${Thread.currentThread().name}:MCC=$mcc, TP=$truePositives, FP=$falsePositives, TN=$trueNegatives, FN=$falseNegatives, delta=$totalDifference")
+
+                                if (1.0f - mcc.toFloat().absoluteValue < 0.4f) {
+//                                    val ds = DefaultDataset(context, ImgPlus.wrap(raiExpected as Img<RealType<*>>))
+//                                    val dsActual = DefaultDataset(context, ImgPlus.wrap(converted as Img<RealType<*>>))
+//                                    val timestamp = System.currentTimeMillis()
+//                                    val filename = "${config.runDirectory}/$timestamp-actual-fitness=${1.0f - mcc.toFloat().absoluteValue}.tiff"
+//                                    println("${Thread.currentThread().name}:Saving actual to $filename")
+//                                    io.save(dsActual, filename)
+//                                    io.save(ds, "${config.runDirectory}/$timestamp-expected.tiff")
+                                }
+
+                                if (totalDifference < 10.0f || totalDifference == Float.NaN) {
+                                    1.0f
+                                } else {
+                                    1.0f - mcc.toFloat().absoluteValue
+                                }
+                            }.sum()
+                        }
+
+                        AnalysisBackend.OpenCVCUDA -> {
+
+                            cases.zip(outputs).map { (case, actual) ->
+                                val actualImage = actual.value.image as opencv_core.GpuMat
+                                val expectedImage = (case.target as Targets.Single).value.image as opencv_core.GpuMat
+
+                                val actualLocal = opencv_core.Mat(actualImage)
+                                val expectedLocal = opencv_core.Mat(expectedImage)
+
+                                actualImage.download(actualLocal)
+                                expectedImage.download(expectedLocal)
+
+                                var trueNegatives = 0L
+                                var falseNegatives = 0L
+                                var truePositives = 0L
+                                var falsePositives = 0L
+
+                                var prev = Float.NaN
+                                var totalDifference = 0.0f
+
+                                for(y in 0 until expectedLocal.rows()) {
+                                    for(x in 0 until expectedLocal.cols()) {
+                                        val actualValue = actualLocal.ptr(y, x).float
+                                        val expectedValue = expectedLocal.ptr(y, x).float
 
                                         if (prev.isNaN()) {
                                             prev = actualValue
@@ -712,10 +848,10 @@ class IrisDetector {
         @JvmStatic fun main(args: Array<String>) {
             // Create a new problem instance, initialise it, and then solve it.
             val backendRequested = System.getProperty("AnalysisBackend", "imagejops").toLowerCase()
-            val backend = if(backendRequested == "opencv") {
-                AnalysisBackend.OpenCV
-            } else {
-                AnalysisBackend.ImageJOps
+            val backend = when(backendRequested) {
+                "opencv" -> AnalysisBackend.OpenCV
+                "opencvcuda" -> AnalysisBackend.OpenCVCUDA
+                else -> AnalysisBackend.ImageJOps
             }
 
             val problem = IrisDetectorProblem(backend)

@@ -31,7 +31,7 @@ class OpenCVCUDAOperationsLoaderTest {
 
     @Test
     fun testCUDA() {
-        val showWindows = System.getProperty("ShowCUDAWindows", "false").toBoolean()
+        val showWindows = System.getProperty("ShowCUDAWindows", "true").toBoolean()
         val rng = opencv_core.RNG()
         var frame = opencv_core.Mat(480, 640, CV_8U)
         randomCircles(frame, rng, 10)
@@ -39,7 +39,7 @@ class OpenCVCUDAOperationsLoaderTest {
         val gpuImage = opencv_core.GpuMat(frame)
 
         println("Creating filters")
-        val gauss = opencv_cudafilters.createGaussianFilter(opencv_core.CV_8U, opencv_core.CV_8U, opencv_core.Size(3, 3), 0.5)
+        val gauss = opencv_cudafilters.createGaussianFilter(opencv_core.CV_8U, opencv_core.CV_8U, opencv_core.Size(7, 7), 0.5)
         val laplace = opencv_cudafilters.createLaplacianFilter(opencv_core.CV_8U, opencv_core.CV_8U, 3, 2.0, opencv_core.BORDER_DEFAULT, opencv_core.Scalar(0.0))
 
         val result = opencv_core.GpuMat()

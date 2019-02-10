@@ -3,18 +3,17 @@ package lgp.core.environment.operations
 import lgp.core.modules.ModuleInformation
 import lgp.core.program.instructions.*
 import lgp.core.program.registers.Arguments
-import org.bytedeco.javacpp.opencv_core
+import org.bytedeco.javacpp.*
 import org.bytedeco.javacpp.opencv_core.*
-import org.bytedeco.javacpp.opencv_imgproc
-import org.bytedeco.javacpp.opencv_ximgproc
+import org.bytedeco.javacpp.opencv_imgproc.*
 import org.reflections.Reflections
 import kotlin.random.Random
 
 class OpenCVCUDAOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class.java, val operationsFilter: List<String> = emptyList()) : OperationLoader<T> {
 
-    open class UnaryOpenCVBaseOperation<T: Image>(val name: String, func: (Arguments<T>) -> T, override val parameters: List<Any> = emptyList()) : UnaryOperation<T>(func), ParameterMutateable<T> {
+    open class UnaryOpenCVCUDABaseOperation<T: Image>(val name: String, func: (Arguments<T>) -> T, override val parameters: List<Any> = emptyList()) : UnaryOperation<T>(func), ParameterMutateable<T> {
         override fun mutateParameters(): Operation<T> {
-            return UnaryOpenCVBaseOperation(name, func, randomParameters(name, parameters))
+            return UnaryOpenCVCUDABaseOperation(name, func, randomParameters(name, parameters))
         }
         /**
          * A way to express an operation in a textual format.
@@ -45,9 +44,9 @@ class OpenCVCUDAOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class
 
     }
 
-    open class BinaryOpenCVBaseOperation<T: Image>(val name: String, func: (Arguments<T>) -> T, override val parameters: List<Any> = emptyList()) : BinaryOperation<T>(func), ParameterMutateable<T> {
+    open class BinaryOpenCVCUDABaseOperation<T: Image>(val name: String, func: (Arguments<T>) -> T, override val parameters: List<Any> = emptyList()) : BinaryOperation<T>(func), ParameterMutateable<T> {
         override fun mutateParameters(): Operation<T> {
-            return BinaryOpenCVBaseOperation(name, func, randomParameters(name, parameters))
+            return BinaryOpenCVCUDABaseOperation(name, func, randomParameters(name, parameters))
         }
 
         /**
@@ -80,115 +79,273 @@ class OpenCVCUDAOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class
     }
 
 
-    class OpenCVAdd<T: Image>() : BinaryOpenCVBaseOperation<T>("add", { args: Arguments<T> ->
-        val result = opencv_core.add(args.get(0).image as Mat, args.get(1).image as Mat).asMat()
-        Image.OpenCVImage(result) as T
+    class OpenCVCUDAAdd<T: Image>() : BinaryOpenCVCUDABaseOperation<T>("add", { args: Arguments<T> ->
+        val result = GpuMat(args.get(0).image as GpuMat)
+        opencv_cudaarithm.add(args.get(0).image as GpuMat, args.get(1).image as GpuMat, result)
+        Image.OpenCVGPUImage(result) as T
     })
 
-    class OpenCVSubtract<T: Image>() : BinaryOpenCVBaseOperation<T>("subtract", { args: Arguments<T> ->
-        val result = opencv_core.subtract(args.get(0).image as Mat, args.get(1).image as Mat).asMat()
-        Image.OpenCVImage(result) as T
+    class OpenCVCUDASubtract<T: Image>() : BinaryOpenCVCUDABaseOperation<T>("subtract", { args: Arguments<T> ->
+        val result = GpuMat(args.get(0).image as GpuMat)
+        opencv_cudaarithm.subtract(args.get(0).image as GpuMat, args.get(1).image as GpuMat, result)
+        Image.OpenCVGPUImage(result) as T
     })
 
-    class OpenCVMultiply<T: Image>() : BinaryOpenCVBaseOperation<T>("multiply", { args: Arguments<T> ->
-        val result = opencv_core.divide(args.get(0).image as Mat, args.get(1).image as Mat).asMat()
-        Image.OpenCVImage(result) as T
+    class OpenCVCUDAMultiply<T: Image>() : BinaryOpenCVCUDABaseOperation<T>("multiply", { args: Arguments<T> ->
+        val result = GpuMat(args.get(0).image as GpuMat)
+        opencv_cudaarithm.multiply(args.get(0).image as GpuMat, args.get(1).image as GpuMat, result)
+        Image.OpenCVGPUImage(result) as T
     })
 
-    class OpenCVDivide<T: Image>() : BinaryOpenCVBaseOperation<T>("divide", { args: Arguments<T> ->
-        val result = opencv_core.divide(args.get(0).image as Mat, args.get(1).image as Mat).asMat()
-        Image.OpenCVImage(result) as T
+    class OpenCVCUDADivide<T: Image>() : BinaryOpenCVCUDABaseOperation<T>("divide", { args: Arguments<T> ->
+        val result = GpuMat(args.get(0).image as GpuMat)
+        opencv_cudaarithm.divide(args.get(0).image as GpuMat, args.get(1).image as GpuMat, result)
+        Image.OpenCVGPUImage(result) as T
+    })
+
+    class OpenCVCUDAAbsDiff<T: Image>() : BinaryOpenCVCUDABaseOperation<T>("absdiff", { args: Arguments<T> ->
+        val result = GpuMat(args.get(0).image as GpuMat)
+        opencv_cudaarithm.absdiff(args.get(0).image as GpuMat, args.get(1).image as GpuMat, result)
+        Image.OpenCVGPUImage(result) as T
     })
 
     // Unary Operations
 
-    class OpenCVAddNumber<T: Image>(override val parameters: List<Any> = listOf(1.0)) : UnaryOpenCVBaseOperation<T>("add", { args: Arguments<T> ->
-        val result = opencv_core.add(args.get(0).image as Mat, Scalar(parameters[0] as Double)).asMat()
-        Image.OpenCVImage(result) as T
+    class OpenCVCUDAAddNumber<T: Image>(override val parameters: List<Any> = listOf(1.0)) : UnaryOpenCVCUDABaseOperation<T>("add", { args: Arguments<T> ->
+        val result = GpuMat(args.get(0).image as GpuMat)
+        val add = GpuMat(args.get(0).image as GpuMat)
+        add.setTo(Scalar(parameters.get(0) as Double))
+
+        opencv_cudaarithm.add(args.get(0).image as GpuMat, add, result)
+        Image.OpenCVGPUImage(result) as T
     })
 
-    class OpenCVSubtractNumber<T: Image>(override val parameters: List<Any> = listOf(1.0)) : UnaryOpenCVBaseOperation<T>("subtract", { args: Arguments<T> ->
-        val result = opencv_core.add(args.get(0).image as Mat, Scalar(parameters[0] as Double)).asMat()
-        Image.OpenCVImage(result) as T
+    class OpenCVCUDASubtractNumber<T: Image>(override val parameters: List<Any> = listOf(1.0)) : UnaryOpenCVCUDABaseOperation<T>("subtract", { args: Arguments<T> ->
+        val result = GpuMat(args.get(0).image as GpuMat)
+        val subtract = GpuMat(args.get(0).image as GpuMat)
+        subtract.setTo(Scalar(parameters.get(0) as Double))
+
+        opencv_cudaarithm.subtract(args.get(0).image as GpuMat, subtract, result)
+        Image.OpenCVGPUImage(result) as T
     })
 
-    class OpenCVMultiplyNumber<T: Image>(override val parameters: List<Any> = listOf(1.0)) : UnaryOpenCVBaseOperation<T>("multiply", { args: Arguments<T> ->
-        val result = opencv_core.add(args.get(0).image as Mat, Scalar(parameters[0] as Double)).asMat()
-        Image.OpenCVImage(result) as T
+    class OpenCVCUDAMultiplyNumber<T: Image>(override val parameters: List<Any> = listOf(1.0)) : UnaryOpenCVCUDABaseOperation<T>("multiply", { args: Arguments<T> ->
+        val result = GpuMat(args.get(0).image as GpuMat)
+        val multiply = GpuMat(args.get(0).image as GpuMat)
+        multiply.setTo(Scalar(parameters.get(0) as Double))
+
+        opencv_cudaarithm.multiply(args.get(0).image as GpuMat, multiply, result)
+        Image.OpenCVGPUImage(result) as T
     }, parameters)
 
-    class OpenCVDivideNumber<T: Image>(override val parameters: List<Any> = listOf(1.0)) : UnaryOpenCVBaseOperation<T>("divide", { args: Arguments<T> ->
-        val result = opencv_core.divide(args.get(0).image as Mat, parameters[0] as Double).asMat()
-        Image.OpenCVImage(result) as T
+    class OpenCVCUDADivideNumber<T: Image>(override val parameters: List<Any> = listOf(1.0)) : UnaryOpenCVCUDABaseOperation<T>("divide", { args: Arguments<T> ->
+        val result = GpuMat(args.get(0).image as GpuMat)
+        val divide = GpuMat(args.get(0).image as GpuMat)
+        divide.setTo(Scalar(parameters.get(0) as Double))
+
+        opencv_cudaarithm.divide(args.get(0).image as GpuMat, divide, result)
+        Image.OpenCVGPUImage(result) as T
     })
 
-//    class OpenCVCannyEdgeDetector<T: Image>(override val parameters: List<Any> = listOf(0.0, 1.0)) : UnaryOpenCVBaseOperation<T>("cannyEdgeDetector", {args: Arguments<T> ->
-//        val edgeDetector = createCannyEdgeDetector(parameters[0] as Double, parameters[1] as Double)
-//        val m = Mat()
-//        edgeDetector.detect(args.get(0).image as Mat, m)
-//
-//        Image.OpenCVImage(m) as T
-//    })
+    class OpenCVCUDAThreshold<T: Image>(override val parameters: List<Any> = listOf(128.0, 255.0)) : UnaryOpenCVCUDABaseOperation<T>("divide", { args: Arguments<T> ->
+        val result = GpuMat(args.get(0).image as GpuMat)
 
-    class OpenCVL0Smooth<T: Image>(override val parameters: List<Any> = emptyList()) : UnaryOpenCVBaseOperation<T>("l0smooth", {args: Arguments<T> ->
-        val m = Mat()
-        opencv_ximgproc.l0Smooth(args.get(0).image as Mat, m)
+        opencv_cudaarithm.threshold(
+            args.get(0).image as GpuMat,
+            result,
+            parameters[0] as Double,
+            parameters[1] as Double,
+            THRESH_BINARY)
 
-        Image.OpenCVImage(m) as T
-    })
+        Image.OpenCVGPUImage(result) as T
+    }) {
+        override fun mutateParameters(): Operation<T> {
+            val threshold = Random.nextDouble(0.0, 255.0)
+            val maxValue = Random.nextDouble(0.0, 255.0)
+            return OpenCVCUDAThreshold(listOf(threshold, maxValue))
+        }
+    }
 
-//    class OpenCVFastHoughTransform<T: Image>(override val parameters: List<Any> = listOf(1)) : UnaryOpenCVBaseOperation<T>("FastHoughTransform", {args: Arguments<T> ->
-//        val m = Mat()
-//        opencv_ximgproc.FastHoughTransform(args.get(0).image as Mat, m, parameters[0] as Int)
-//
-//        Image.OpenCVImage(m) as T
-//    })
+    class OpenCVCUDAGauss<T: Image>(
+        override val parameters: List<Any> = listOf(3, 3, 0.5),
+        val filter: opencv_cudafilters.Filter = opencv_cudafilters.createGaussianFilter(
+            opencv_core.CV_8U,
+            opencv_core.CV_8U,
+            Size(parameters[0] as Int, parameters[1] as Int),
+            parameters[2] as Double
+        )) : UnaryOpenCVCUDABaseOperation<T>("gauss", { args: Arguments<T> ->
+        val result = GpuMat(args.get(0).image as GpuMat)
+        filter.apply(args.get(0).image as GpuMat, result)
 
-    class OpenCVThinning<T: Image>(override val parameters: List<Any> = listOf(1)) : UnaryOpenCVBaseOperation<T>("Thinning", {args: Arguments<T> ->
-        val m = (args.get(0).image as Mat).clone()
-        val converted = Mat()
-        (args.get(0).image as Mat).convertTo(converted, CV_8U)
+        Image.OpenCVGPUImage(result) as T
+    }) {
+        override fun mutateParameters(): Operation<T> {
+            val kernelSizeX = Random.nextInt(0, 3) * 2 + 1
+            val kernelSizeY = Random.nextInt(0, 3) * 2 + 1
+            val sigma = Random.nextDouble(0.0, 4.0)
 
-        opencv_ximgproc.thinning(converted, converted)
+            return OpenCVCUDAGauss(listOf(kernelSizeX, kernelSizeY, sigma))
+        }
+    }
 
-        val final = Mat()
-        converted.convertTo(final, CV_32F)
+    class OpenCVCUDALaplace<T: Image>(
+        override val parameters: List<Any> = listOf(3, 1.0),
+        val filter: opencv_cudafilters.Filter = opencv_cudafilters.createLaplacianFilter(
+            opencv_core.CV_8U,
+            opencv_core.CV_8U,
+            parameters[0] as Int,
+            parameters[1] as Double,
+            BORDER_WRAP,
+            Scalar(0.0)
+        )) : UnaryOpenCVCUDABaseOperation<T>("gauss", { args: Arguments<T> ->
+        val result = GpuMat(args.get(0).image as GpuMat)
+        filter.apply(args.get(0).image as GpuMat, result)
 
-        Image.OpenCVImage(final) as T
-    })
+        Image.OpenCVGPUImage(result) as T
+    }) {
+        override fun mutateParameters(): Operation<T> {
+            val kernelSize = listOf(1, 3).random()
+            val scale = Random.nextDouble(0.0, 4.0)
 
-//    class OpenCVAnisotrophicDiffusion<T: Image>(override val parameters: List<Any> = listOf(0.5f, 0.5f, 5)) : UnaryOpenCVBaseOperation<T>("anisotrophicDiffusion", {args: Arguments<T> ->
-//        val m = Mat()
-//        opencv_ximgproc.anisotropicDiffusion(args.get(0).image as Mat, m, parameters[0] as Float, parameters[1] as Float, parameters[2] as Int)
-//
-//        Image.OpenCVImage(m) as T
-//    })
+            return OpenCVCUDALaplace(listOf(kernelSize, scale))
+        }
+    }
 
-    class OpenCVBlur<T: Image>(override val parameters: List<Any> = listOf(2, 2)) : UnaryOpenCVBaseOperation<T>("blur", {args: Arguments<T> ->
-        val m = Mat()
-        opencv_imgproc.blur(args.get(0).image as Mat, m, Size(parameters[0] as Int, parameters[1] as Int))
+    class OpenCVCUDABoxFilter<T: Image>(
+        override val parameters: List<Any> = listOf(3, 3, 1, 1),
+        val filter: opencv_cudafilters.Filter = opencv_cudafilters.createBoxFilter(
+            opencv_core.CV_8U,
+            opencv_core.CV_8U,
+            Size(parameters[0] as Int, parameters[1] as Int),
+            Point(parameters[2] as Int, parameters[3] as Int),
+            BORDER_DEFAULT,
+            Scalar(0.0)
+        )) : UnaryOpenCVCUDABaseOperation<T>("boxFilter", { args: Arguments<T> ->
+        val result = GpuMat(args.get(0).image as GpuMat)
+        filter.apply(args.get(0).image as GpuMat, result)
 
-        Image.OpenCVImage(m) as T
-    })
+        Image.OpenCVGPUImage(result) as T
+    }) {
+        override fun mutateParameters(): Operation<T> {
+            val kernelSizeX = Random.nextInt(1, 5)
+            val kernelSizeY = Random.nextInt(1, 5)
+            val anchorX = Random.nextInt(0, kernelSizeX)
+            val anchorY = Random.nextInt(0, kernelSizeY)
 
-    class OpenCVThreshold<T: Image>(override val parameters: List<Any> = listOf(0.5, 0.5)) : UnaryOpenCVBaseOperation<T>("threshold", {args: Arguments<T> ->
-        val m = Mat()
-        val converted = Mat()
-        (args.get(0).image as Mat).convertTo(converted, CV_8U)
-        opencv_imgproc.threshold(converted, m, parameters[0] as Double, parameters[1] as Double, 8)
+            return OpenCVCUDABoxFilter(listOf(kernelSizeX, kernelSizeY, anchorX, anchorY))
+        }
+    }
 
-        val final = Mat()
-        m.convertTo(final, CV_32F)
+    class OpenCVCUDAErode<T: Image>(
+        override val parameters: List<Any> = listOf(Mat.ones(3, 3, CV_8U).asMat()),
+        val filter: opencv_cudafilters.Filter = opencv_cudafilters.createMorphologyFilter(
+            MORPH_ERODE,
+            opencv_core.CV_8U,
+            parameters[0] as Mat
+        )) : UnaryOpenCVCUDABaseOperation<T>("erode", { args: Arguments<T> ->
+        val result = GpuMat(args.get(0).image as GpuMat)
+        filter.apply(args.get(0).image as GpuMat, result)
 
-        Image.OpenCVImage(final) as T
-    })
+        Image.OpenCVGPUImage(result) as T
+    }) {
+        override fun mutateParameters(): Operation<T> {
+            // 0 = rect, 1 = ellipse, 2 = cross
+            val shape = Random.nextInt(0, 2)
+            val size = Size(Random.nextInt(1, 7), Random.nextInt(1, 7))
+            val kernel = getStructuringElement(shape, size)
 
-//    class OpenCVWatershed<T: Image>(override val parameters: List<Any> = emptyList()) : UnaryOpenCVBaseOperation<T>("watershed", {args: Arguments<T> ->
-//        val m = Mat()
-//        opencv_imgproc.watershed((args.get(0).image as Mat), m)
-//
-//        Image.OpenCVImage(m) as T
-//    })
+            return OpenCVCUDAErode(listOf(kernel))
+        }
+    }
+
+    class OpenCVCUDADilate<T: Image>(
+        override val parameters: List<Any> = listOf(Mat.ones(3, 3, CV_8U).asMat()),
+        val filter: opencv_cudafilters.Filter = opencv_cudafilters.createMorphologyFilter(
+            MORPH_DILATE,
+            opencv_core.CV_8U,
+            parameters[0] as Mat
+        )) : UnaryOpenCVCUDABaseOperation<T>("dilate", { args: Arguments<T> ->
+        val result = GpuMat(args.get(0).image as GpuMat)
+        filter.apply(args.get(0).image as GpuMat, result)
+
+        Image.OpenCVGPUImage(result) as T
+    }) {
+        override fun mutateParameters(): Operation<T> {
+            // 0 = rect, 1 = ellipse, 2 = cross
+            val shape = Random.nextInt(0, 2)
+            val size = Size(Random.nextInt(1, 7), Random.nextInt(1, 7))
+            val kernel = getStructuringElement(shape, size)
+
+            return OpenCVCUDAErode(listOf(kernel))
+        }
+    }
+
+    class OpenCVCUDAGradient<T: Image>(
+        override val parameters: List<Any> = listOf(Mat.ones(3, 3, CV_8U).asMat()),
+        val filter: opencv_cudafilters.Filter = opencv_cudafilters.createMorphologyFilter(
+            MORPH_GRADIENT,
+            opencv_core.CV_8U,
+            parameters[0] as Mat
+        )) : UnaryOpenCVCUDABaseOperation<T>("gradient", { args: Arguments<T> ->
+        val result = GpuMat(args.get(0).image as GpuMat)
+        filter.apply(args.get(0).image as GpuMat, result)
+
+        Image.OpenCVGPUImage(result) as T
+    }) {
+        override fun mutateParameters(): Operation<T> {
+            // 0 = rect, 1 = ellipse, 2 = cross
+            val shape = Random.nextInt(0, 2)
+            val size = Size(Random.nextInt(1, 7), Random.nextInt(1, 7))
+            val kernel = getStructuringElement(shape, size)
+
+            return OpenCVCUDAGradient(listOf(kernel))
+        }
+    }
+
+    class OpenCVCUDAOpening<T: Image>(
+        override val parameters: List<Any> = listOf(Mat.ones(3, 3, CV_8U).asMat()),
+        val filter: opencv_cudafilters.Filter = opencv_cudafilters.createMorphologyFilter(
+            MORPH_OPEN,
+            opencv_core.CV_8U,
+            parameters[0] as Mat
+        )) : UnaryOpenCVCUDABaseOperation<T>("opening", { args: Arguments<T> ->
+        val result = GpuMat(args.get(0).image as GpuMat)
+        filter.apply(args.get(0).image as GpuMat, result)
+
+        Image.OpenCVGPUImage(result) as T
+    }) {
+        override fun mutateParameters(): Operation<T> {
+            // 0 = rect, 1 = ellipse, 2 = cross
+            val shape = Random.nextInt(0, 2)
+            val size = Size(Random.nextInt(1, 7), Random.nextInt(1, 7))
+            val kernel = getStructuringElement(shape, size)
+
+            return OpenCVCUDAOpening(listOf(kernel))
+        }
+    }
+
+    class OpenCVCUDAClosing<T: Image>(
+        override val parameters: List<Any> = listOf(Mat.ones(3, 3, CV_8U).asMat()),
+        val filter: opencv_cudafilters.Filter = opencv_cudafilters.createMorphologyFilter(
+            MORPH_CLOSE,
+            opencv_core.CV_8U,
+            parameters[0] as Mat
+        )) : UnaryOpenCVCUDABaseOperation<T>("closing", { args: Arguments<T> ->
+        val result = GpuMat(args.get(0).image as GpuMat)
+        filter.apply(args.get(0).image as GpuMat, result)
+
+        Image.OpenCVGPUImage(result) as T
+    }) {
+        override fun mutateParameters(): Operation<T> {
+            // 0 = rect, 1 = ellipse, 2 = cross
+            val shape = Random.nextInt(0, 2)
+            val size = Size(Random.nextInt(1, 5), Random.nextInt(1, 5))
+            val kernel = getStructuringElement(shape, size)
+
+            return OpenCVCUDAClosing(listOf(kernel))
+        }
+    }
+
 
     /**
      * Loads a component.
@@ -221,7 +378,7 @@ class OpenCVCUDAOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class
         var infosPrinted = false
 
         val ref = Reflections("lgp.core.environment.operations")
-        val algorithms = ref.getSubTypesOf(UnaryOpenCVBaseOperation::class.java) + ref.getSubTypesOf(BinaryOpenCVBaseOperation::class.java)
+        val algorithms = ref.getSubTypesOf(UnaryOpenCVCUDABaseOperation::class.java) + ref.getSubTypesOf(BinaryOpenCVCUDABaseOperation::class.java)
 
         fun printlnOnce(message: Any?) {
             if(!infosPrinted) {
