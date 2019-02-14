@@ -38,7 +38,11 @@ import net.imglib2.view.Views
 import org.bytedeco.javacpp.opencv_core
 import org.bytedeco.javacpp.opencv_core.CV_32F
 import org.bytedeco.javacpp.opencv_core.CV_8U
+import org.bytedeco.javacpp.opencv_cudaarithm
 import org.bytedeco.javacpp.opencv_imgcodecs.imread
+import org.bytedeco.javacpp.opencv_imgcodecs.imwrite
+import org.bytedeco.javacpp.opencv_imgproc
+import org.bytedeco.javacpp.opencv_imgproc.*
 import org.opencv.core.Mat
 import org.scijava.Context
 import org.scijava.io.IOService
@@ -93,13 +97,13 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
             config.constantsRate = 0.0
             config.constants = listOf("0.0", "1.0", "2.0")
             config.numCalculationRegisters = 4
-            config.populationSize = 200
+            config.populationSize = 40
             config.generations = 1000
             config.numFeatures = 1
             config.microMutationRate = 0.7
-            config.crossoverRate = 0.25
-            config.macroMutationRate = 0.5
-            config.numOffspring = 20
+            config.crossoverRate = 0.4
+            config.macroMutationRate = 0.7
+            config.numOffspring = 10
             config.runDirectory = runDirectory
 
             return config
@@ -597,45 +601,56 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
 
                                 val actualLocal = opencv_core.Mat(actualImage)
                                 val expectedLocal = opencv_core.Mat(expectedImage)
+                                val thresholdedLocal = opencv_core.Mat()
 
                                 actualImage.download(actualLocal)
+                                actualImage.release()
                                 expectedImage.download(expectedLocal)
+
+//                                opencv_imgproc.adaptiveThreshold(
+//                                    actualLocal,
+//                                    thresholdedLocal,
+//                                    50.0,
+//                                    ADAPTIVE_THRESH_GAUSSIAN_C,
+//                                    THRESH_BINARY,
+//                                    3, 3.0
+//                                )
+                                opencv_imgproc.threshold(
+                                    actualLocal,
+                                    thresholdedLocal,
+                                    25.0,
+                                    255.0,
+                                    THRESH_OTSU
+                                )
 
                                 var trueNegatives = 0L
                                 var falseNegatives = 0L
                                 var truePositives = 0L
                                 var falsePositives = 0L
 
-                                var prev = Float.NaN
+                                var prev: UByte? = null
                                 var totalDifference = 0.0f
 
                                 for(y in 0 until expectedLocal.rows()) {
                                     for(x in 0 until expectedLocal.cols()) {
-                                        val actualValue = actualLocal.ptr(y, x).float
-                                        val expectedValue = expectedLocal.ptr(y, x).float
 
-                                        if (prev.isNaN()) {
+                                        val actualValue = actualLocal.ptr(y).get(x.toLong()).toUByte()
+                                        val expectedValue = expectedLocal.ptr(y).get(x.toLong()).toUByte()
+
+                                        if (prev == null) {
                                             prev = actualValue
                                         }
 
-                                        totalDifference += (prev - actualValue).absoluteValue
+                                        totalDifference += (prev!!.toLong() - actualValue.toLong()).absoluteValue
 
                                         prev = actualValue
 
-                                        if (expectedValue < 254.9f && actualValue < 1.0f) {
-                                            trueNegatives++
-                                        }
-
-                                        if (expectedValue > 254.9f && actualValue < 1.0f) {
-                                            falseNegatives++
-                                        }
-
-                                        if (expectedValue > 254.9f && actualValue >= 1.0f) {
-                                            truePositives++
-                                        }
-
-                                        if (expectedValue < 254.9f && actualValue >= 1.0f) {
-                                            falsePositives++
+                                        when {
+                                            expectedValue < 255u && actualValue < 1u -> trueNegatives++
+                                            expectedValue > 254u && actualValue < 1u -> falseNegatives++
+                                            expectedValue > 254u && actualValue >= 1u -> truePositives++
+                                            expectedValue < 255u && actualValue >= 1u -> falsePositives++
+                                            else -> throw Exception("None of the cases match, wtf! $expectedValue vs $actualValue")
                                         }
                                     }
                                 }
@@ -650,21 +665,23 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
                                 val mcc = (truePositives * trueNegatives - falsePositives * falseNegatives) / mccDenom
                                 println("${Thread.currentThread().name}:MCC=$mcc, TP=$truePositives, FP=$falsePositives, TN=$trueNegatives, FN=$falseNegatives, delta=$totalDifference")
 
-                                if (1.0f - mcc.toFloat().absoluteValue < 0.4f) {
-//                                    val ds = DefaultDataset(context, ImgPlus.wrap(raiExpected as Img<RealType<*>>))
-//                                    val dsActual = DefaultDataset(context, ImgPlus.wrap(converted as Img<RealType<*>>))
-//                                    val timestamp = System.currentTimeMillis()
-//                                    val filename = "${config.runDirectory}/$timestamp-actual-fitness=${1.0f - mcc.toFloat().absoluteValue}.tiff"
-//                                    println("${Thread.currentThread().name}:Saving actual to $filename")
-//                                    io.save(dsActual, filename)
-//                                    io.save(ds, "${config.runDirectory}/$timestamp-expected.tiff")
-                                }
-
-                                if (totalDifference < 10.0f || totalDifference == Float.NaN) {
+                                val mccFitness = if (totalDifference < 10.0f) {
                                     1.0f
                                 } else {
                                     1.0f - mcc.toFloat().absoluteValue
                                 }
+
+                                if (mccFitness <= 0.3f) {
+                                    val timestamp = System.currentTimeMillis()
+                                    val filenameActual = "${config.runDirectory}/$timestamp-actual-fitness=${1.0f - mcc.toFloat().absoluteValue}.tiff"
+                                    val filenameExpected = "${config.runDirectory}/$timestamp-expected.tiff"
+                                    val filenameThresholded = "${config.runDirectory}/$timestamp-thresholded.tiff"
+                                    imwrite(filenameActual, actualLocal)
+                                    imwrite(filenameThresholded, actualLocal)
+                                    imwrite(filenameExpected, expectedLocal)
+                                }
+
+                                mccFitness
                             }.sum()
                         }
                     }
@@ -715,7 +732,7 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
                 )
             },
             CoreModuleType.SelectionOperator to { environment ->
-                TournamentSelection(environment, tournamentSize = 8, speciation = SpeciationSelection(2, 0.5f))
+                TournamentSelection(environment, tournamentSize = 4, speciation = SpeciationSelection(2, 0.5f))
             },
             CoreModuleType.RecombinationOperator to { environment ->
                 LinearCrossover(
@@ -764,12 +781,12 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
     }
 
     override fun initialiseModel() {
-        this.model = Models.IslandMigration(this.environment,
-            Models.IslandMigration.IslandMigrationOptions(
-                numIslands = 4,
-                migrationInterval = 10,
-                migrationSize = 3))
-//        this.model = Models.SteadyState(this.environment)
+//        this.model = Models.IslandMigration(this.environment,
+//            Models.IslandMigration.IslandMigrationOptions(
+//                numIslands = 4,
+//                migrationInterval = 10,
+//                migrationSize = 3))
+        this.model = Models.SteadyState(this.environment)
     }
 
     override fun solve(): IrisDetectorSolution {
@@ -791,7 +808,7 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
             }
             */
 
-            val runner = DistributedTrainer(environment, model, runs = 2)
+            val runner = DistributedTrainer(environment, model, runs = 4)
 
             return runBlocking {
                 val job = runner.trainAsync(
