@@ -9,6 +9,8 @@ import lgp.core.environment.operations.OperationLoader
 import lgp.core.evolution.fitness.FitnessFunctionProvider
 import lgp.core.program.Output
 import lgp.core.evolution.model.EvolutionModel
+import lgp.core.evolution.model.Models
+import java.io.File
 
 data class Description(val description: String)
 
@@ -114,4 +116,18 @@ abstract class Problem<TProgram, TOutput : Output<TProgram>> {
      * @return A solution for the problem.
      */
     abstract fun solve(): Solution<TProgram>
+
+    fun dumpConfiguration() {
+        val configFile = File("${environment.configuration.runDirectory}/run.conf")
+        val model = this.model
+
+        configFile.printWriter().use { writer ->
+            writer.println(environment.configuration.toString())
+            writer.println("EvolutionStrategy:")
+            writer.println("\tStrategy = ${this.model.javaClass.simpleName}")
+            if(model is Models.IslandMigration) {
+                writer.println(model.options)
+            }
+        }
+    }
 }

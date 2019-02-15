@@ -39,12 +39,8 @@ import net.imglib2.view.Views
 import org.bytedeco.javacpp.opencv_core
 import org.bytedeco.javacpp.opencv_core.CV_32F
 import org.bytedeco.javacpp.opencv_core.CV_8U
-import org.bytedeco.javacpp.opencv_cudaarithm
 import org.bytedeco.javacpp.opencv_imgcodecs.imread
 import org.bytedeco.javacpp.opencv_imgcodecs.imwrite
-import org.bytedeco.javacpp.opencv_imgproc
-import org.bytedeco.javacpp.opencv_imgproc.*
-import org.opencv.core.Mat
 import org.scijava.Context
 import org.scijava.io.IOService
 import org.scijava.service.SciJavaService
@@ -73,6 +69,7 @@ data class IrisDetectorSolution(
 ) : Solution<Image>
 
 // Define the problem and the necessary components to solve it.
+@ExperimentalUnsignedTypes
 class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJOps): Problem<Image, Outputs.Single<Image>>() {
     override val name = "Iris Detection"
 
@@ -88,8 +85,8 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
 
             config.initialMinimumProgramLength = 10
             config.initialMaximumProgramLength = 20
-            config.minimumProgramLength = 10
-            config.maximumProgramLength = 50
+            config.minimumProgramLength = 5
+            config.maximumProgramLength = 30
             config.operations = listOf(
                 "lgp.lib.operations.Addition",
                 "lgp.lib.operations.Subtraction",
@@ -98,13 +95,13 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
             config.constantsRate = 0.0
             config.constants = listOf("0.0", "1.0", "2.0")
             config.numCalculationRegisters = 6
-            config.populationSize = 200
+            config.populationSize = 400
             config.generations = 1000
             config.numFeatures = 1
-            config.microMutationRate = 0.7
-            config.crossoverRate = 0.4
-            config.macroMutationRate = 0.7
-            config.numOffspring = 10
+            config.microMutationRate = 0.4
+            config.crossoverRate = 0.5
+            config.macroMutationRate = 0.3
+            config.numOffspring = 20
             config.runDirectory = runDirectory
 
             return config
@@ -293,19 +290,6 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
         System.setOut(stdout)
         System.setErr(stderr)
 
-        val configFile = File("${config.runDirectory}/run.conf")
-        val model = this.model
-
-        configFile.printWriter().use { writer ->
-            writer.println(config.toString())
-            writer.println("EvolutionStrategy:")
-            writer.println("\tStrategy = ${this.model.javaClass.simpleName}")
-            if(model is Models.IslandMigration) {
-                writer.println(model.options)
-            }
-        }
-
-
         when(backend) {
             AnalysisBackend.ImageJOps -> {
                 val factory = ArrayImgFactory(UnsignedByteType())
@@ -356,6 +340,7 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
         io.save(ds, filename)
     }
 
+    var iterations = 0L
     override val fitnessFunctionProvider = {
         val ff: SingleOutputFitnessFunction<Image> = object : SingleOutputFitnessFunction<Image>() {
 
@@ -364,6 +349,7 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
                 cases: List<FitnessCase<Image>>,
                 program: Program<Image, Outputs.Single<Image>>
             ): Double {
+                val timestamp = System.currentTimeMillis()
                 val fitnessAbsoluteDifferences = {
                     when(backend) {
                         AnalysisBackend.ImageJOps -> {
@@ -613,7 +599,7 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
 
                         AnalysisBackend.OpenCVCUDA -> {
 
-                            cases.zip(outputs).map { (case, actual) ->
+                            cases.zip(outputs).mapIndexed { i, (case, actual) ->
                                 val actualImage = actual.value.image as opencv_core.GpuMat
                                 val expectedImage = (case.target as Targets.Single).value.image as opencv_core.GpuMat
 
@@ -633,13 +619,13 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
 //                                    THRESH_BINARY,
 //                                    3, 3.0
 //                                )
-                                opencv_imgproc.threshold(
-                                    actualLocal,
-                                    thresholdedLocal,
-                                    25.0,
-                                    255.0,
-                                    THRESH_OTSU
-                                )
+//                                opencv_imgproc.threshold(
+//                                    actualLocal,
+//                                    thresholdedLocal,
+//                                    25.0,
+//                                    255.0,
+//                                    THRESH_OTSU
+//                                )
 
                                 var trueNegatives = 0L
                                 var falseNegatives = 0L
@@ -690,10 +676,9 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
                                 }
 
                                 if (mccFitness <= 0.3f) {
-                                    val timestamp = System.currentTimeMillis()
-                                    val filenameActual = "${config.runDirectory}/$timestamp-actual-fitness=${1.0f - mcc.toFloat().absoluteValue}.tiff"
-                                    val filenameExpected = "${config.runDirectory}/$timestamp-expected.tiff"
-                                    val filenameThresholded = "${config.runDirectory}/$timestamp-thresholded.tiff"
+                                    val filenameActual = "${config.runDirectory}/$timestamp-$i-actual-fitness=${1.0f - mcc.toFloat().absoluteValue}.tiff"
+                                    val filenameExpected = "${config.runDirectory}/$timestamp-$i-expected.tiff"
+                                    val filenameThresholded = "${config.runDirectory}/$timestamp-$i-thresholded.tiff"
                                     imwrite(filenameActual, actualLocal)
                                     imwrite(filenameThresholded, actualLocal)
                                     imwrite(filenameExpected, expectedLocal)
@@ -721,6 +706,21 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
                 } catch (e: Exception) {
                     println("${Thread.currentThread().name}:Failed Fitness evaluation: ${e.toString()}")
                     Float.NEGATIVE_INFINITY
+                }
+
+                if(backend == AnalysisBackend.OpenCVCUDA) {
+                    program.registers.calculationRegisters.forEach { i ->
+                        (program.registers[i] as? Image.OpenCVGPUImage)?.let { image ->
+                            if(image != defaultImage) {
+                                image.image.release()
+                            }
+                        }
+                    }
+                }
+
+                if(fitness < 0.3f) {
+                    val programFile = File("$${config.runDirectory}/$timestamp-program.txt")
+                    programFile.writeText("fitness=$fitness\n${program.toString()}")
                 }
 
                 val f = when {
@@ -765,7 +765,7 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
                 MacroMutationOperator(
                     environment,
                     insertionRate = 0.67,
-                    deletionRate = 0.5
+                    deletionRate = 0.3
                 )
             },
             CoreModuleType.MicroMutationOperator to { environment ->
@@ -799,12 +799,12 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
     }
 
     override fun initialiseModel() {
-        this.model = Models.IslandMigration(this.environment,
-            Models.IslandMigration.IslandMigrationOptions(
-                numIslands = 6,
-                migrationInterval = 5,
-                migrationSize = 2))
-//        this.model = Models.SteadyState(this.environment)
+//        this.model = Models.IslandMigration(this.environment,
+//            Models.IslandMigration.IslandMigrationOptions(
+//                numIslands = 6,
+//                migrationInterval = 5,
+//                migrationSize = 4))
+        this.model = Models.SteadyState(this.environment)
     }
 
     override fun solve(): IrisDetectorSolution {
@@ -826,7 +826,7 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
             }
             */
 
-            val runner = DistributedTrainer(environment, model, runs = 4)
+            val runner = DistributedTrainer(environment, model, runs = 2)
 
             return runBlocking {
                 val job = runner.trainAsync(
@@ -892,6 +892,7 @@ class IrisDetector {
             val problem = IrisDetectorProblem(backend)
             problem.initialiseEnvironment()
             problem.initialiseModel()
+            problem.dumpConfiguration()
             println("IrisDetector: Loading images and ground truth masks from ${problem.maxDirectories} directories")
             val solution = problem.solve()
             val simplifier = BaseProgramSimplifier<Image, Outputs.Single<Image>>()
