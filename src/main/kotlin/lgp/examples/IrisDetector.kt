@@ -86,8 +86,8 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
         override fun load(): Configuration {
             val config = Configuration()
 
-            config.initialMinimumProgramLength = 5
-            config.initialMaximumProgramLength = 10
+            config.initialMinimumProgramLength = 10
+            config.initialMaximumProgramLength = 20
             config.minimumProgramLength = 10
             config.maximumProgramLength = 50
             config.operations = listOf(
@@ -97,8 +97,8 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
             )
             config.constantsRate = 0.0
             config.constants = listOf("0.0", "1.0", "2.0")
-            config.numCalculationRegisters = 4
-            config.populationSize = 40
+            config.numCalculationRegisters = 6
+            config.populationSize = 200
             config.generations = 1000
             config.numFeatures = 1
             config.microMutationRate = 0.7
@@ -292,6 +292,19 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
 
         System.setOut(stdout)
         System.setErr(stderr)
+
+        val configFile = File("${config.runDirectory}/run.conf")
+        val model = this.model
+
+        configFile.printWriter().use { writer ->
+            writer.println(config.toString())
+            writer.println("EvolutionStrategy:")
+            writer.println("\tStrategy = ${this.model.javaClass.simpleName}")
+            if(model is Models.IslandMigration) {
+                writer.println(model.options)
+            }
+        }
+
 
         when(backend) {
             AnalysisBackend.ImageJOps -> {
@@ -752,14 +765,14 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
                 MacroMutationOperator(
                     environment,
                     insertionRate = 0.67,
-                    deletionRate = 0.33
+                    deletionRate = 0.5
                 )
             },
             CoreModuleType.MicroMutationOperator to { environment ->
                 MicroMutationOperator(
                     environment,
-                    registerMutationRate = 0.5,
-                    operatorMutationRate = 0.5,
+                    registerMutationRate = 0.7,
+                    operatorMutationRate = 0.7,
                     // Use identity func. since the probabilities
                     // of other micro mutations mean that we aren't
                     // modifying constants.
@@ -786,12 +799,12 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
     }
 
     override fun initialiseModel() {
-//        this.model = Models.IslandMigration(this.environment,
-//            Models.IslandMigration.IslandMigrationOptions(
-//                numIslands = 4,
-//                migrationInterval = 10,
-//                migrationSize = 3))
-        this.model = Models.SteadyState(this.environment)
+        this.model = Models.IslandMigration(this.environment,
+            Models.IslandMigration.IslandMigrationOptions(
+                numIslands = 6,
+                migrationInterval = 5,
+                migrationSize = 2))
+//        this.model = Models.SteadyState(this.environment)
     }
 
     override fun solve(): IrisDetectorSolution {

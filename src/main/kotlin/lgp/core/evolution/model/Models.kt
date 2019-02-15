@@ -485,6 +485,12 @@ object Models {
                 this.migrationInterval = migrationInterval
                 this.migrationSize = migrationSize
             }
+
+            override fun toString(): String {
+                return "\tnumIslands = $numIslands\n" +
+                        "\tmigrationInterval = $migrationInterval\n" +
+                        "\tmigrationSize = $migrationSize\n"
+            }
         }
 
         /**
