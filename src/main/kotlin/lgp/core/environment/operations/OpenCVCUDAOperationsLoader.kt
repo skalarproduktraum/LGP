@@ -364,6 +364,34 @@ class OpenCVCUDAOperationsLoader<T: Image> : OperationLoader<T> {
         }
     }
 
+    class OpenCVCUDACannyEdgeDetector<T: Image>(
+        override val parameters: List<Any> = listOf(0.0, 255.0),
+        val filter: opencv_cudaimgproc.CannyEdgeDetector = opencv_cudaimgproc.createCannyEdgeDetector(
+            parameters[0] as Double,
+            parameters[1] as Double
+        )) : UnaryOpenCVCUDABaseOperation<T>("cannyEdgeDetect", { args: Arguments<T> ->
+        val result = GpuMat()
+        filter.detect(args.get(0).image as GpuMat, result)
+
+        Image.OpenCVGPUImage(result) as T
+    }) {
+        override fun mutateParameters(): Operation<T> {
+            val low = Random.nextDouble(0.0, 254.0)
+            val high = Random.nextDouble(low, 255.0)
+
+            return OpenCVCUDACannyEdgeDetector(listOf(low, high))
+        }
+    }
+
+    class OpenCVCUDAHistogramEqualisation<T: Image>(
+        override val parameters: List<Any> = emptyList()) : UnaryOpenCVCUDABaseOperation<T>("histogramEqualisation", { args: Arguments<T> ->
+        val result = GpuMat()
+        opencv_cudaimgproc.equalizeHist(args.get(0).image as GpuMat, result)
+
+        Image.OpenCVGPUImage(result) as T
+    })
+
+
 
     /**
      * Loads a component.
