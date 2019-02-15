@@ -84,7 +84,7 @@ class SingleOutputFitnessContext<TData>(
             }
 
             // Copy the fitness to the program for later accesses
-            program.fitness = this.fitnessFunction(outputs, fitnessCases)
+            program.fitness = this.fitnessFunction(outputs, fitnessCases, program)
         } else {
             println("${Thread.currentThread().name}:Fitness = 100.0")
             program.fitness = 100.0
@@ -133,7 +133,7 @@ class MultipleOutputFitnessContext<TData>(
         }
 
         // Copy the fitness to the program for later accesses
-        program.fitness = this.fitnessFunction(outputs, fitnessCases)
+        program.fitness = this.fitnessFunction(outputs, fitnessCases, program)
 
         return program.fitness
     }

@@ -19,6 +19,7 @@ import lgp.core.evolution.training.SequentialTrainer
 import lgp.core.evolution.training.TrainingResult
 import lgp.core.modules.ModuleInformation
 import lgp.core.program.Outputs
+import lgp.core.program.Program
 import lgp.lib.*
 import java.io.BufferedReader
 import java.io.InputStream
@@ -26,7 +27,11 @@ import java.io.InputStreamReader
 
 private val match: MultipleOutputFitnessFunction<Double> = object : MultipleOutputFitnessFunction<Double>() {
 
-    override fun fitness(outputs: List<Outputs.Multiple<Double>>, cases: List<FitnessCase<Double>>): Double {
+    override fun fitness(
+        outputs: List<Outputs.Multiple<Double>>,
+        cases: List<FitnessCase<Double>>,
+        program: Program<Double, Outputs.Multiple<Double>>
+    ): Double {
         val mismatches = cases.zip(outputs).filter { (case, actual) ->
             val expected = (case.target as Targets.Multiple<Double>).values
 

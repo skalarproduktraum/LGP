@@ -3,6 +3,7 @@ package lgp.core.evolution.fitness
 import lgp.core.environment.dataset.Targets
 import lgp.core.program.Output
 import lgp.core.program.Outputs
+import lgp.core.program.Program
 
 /**
  * A [FitnessFunction] for [lgp.core.program.Program]s with a single output.
@@ -35,13 +36,13 @@ abstract class FitnessFunction<TData, TOutput : Output<TData>> {
      * @param cases A set of expected outputs.
      * @return A double value that represents the error measure between the predicted/expected outputs.
      */
-    abstract fun fitness(outputs: List<TOutput>, cases: List<FitnessCase<TData>>): Double
+    abstract fun fitness(outputs: List<TOutput>, cases: List<FitnessCase<TData>>, program: Program<TData, TOutput>): Double
 
     /**
      * Allows [fitness] to be called directly using `()` syntax (e.g. `fitnessFunctionInstance(outputs, cases)`).
      */
-    operator fun invoke(outputs: List<TOutput>, cases: List<FitnessCase<TData>>): Double {
-        return this.fitness(outputs, cases)
+    operator fun invoke(outputs: List<TOutput>, cases: List<FitnessCase<TData>>, program: Program<TData, TOutput>): Double {
+        return this.fitness(outputs, cases, program)
     }
 }
 
@@ -71,7 +72,11 @@ object FitnessFunctions {
     @JvmStatic
     val MAE: SingleOutputFitnessFunction<Double> = object : SingleOutputFitnessFunction<Double>() {
 
-        override fun fitness(outputs: List<Outputs.Single<Double>>, cases: List<FitnessCase<Double>>): Double {
+        override fun fitness(
+            outputs: List<Outputs.Single<Double>>,
+            cases: List<FitnessCase<Double>>,
+            program: Program<Double, Outputs.Single<Double>>
+        ): Double {
             val fitness = cases.zip(outputs).map { (case, actual) ->
                 // Assumption is that this is a single-output data set
                 // TODO: This is a bit naff, especially having to do it for every fitness function implementation.
@@ -97,7 +102,11 @@ object FitnessFunctions {
     @JvmStatic
     val SSE: SingleOutputFitnessFunction<Double> = object : SingleOutputFitnessFunction<Double>() {
 
-        override fun fitness(outputs: List<Outputs.Single<Double>>, cases: List<FitnessCase<Double>>): Double {
+        override fun fitness(
+            outputs: List<Outputs.Single<Double>>,
+            cases: List<FitnessCase<Double>>,
+            program: Program<Double, Outputs.Single<Double>>
+        ): Double {
             val fitness = cases.zip(outputs).map { (case, actual) ->
                 val expected = (case.target as Targets.Single).value
 
@@ -119,7 +128,11 @@ object FitnessFunctions {
     @JvmStatic
     val MSE: SingleOutputFitnessFunction<Double> = object : SingleOutputFitnessFunction<Double>() {
 
-        override fun fitness(outputs: List<Outputs.Single<Double>>, cases: List<FitnessCase<Double>>): Double {
+        override fun fitness(
+            outputs: List<Outputs.Single<Double>>,
+            cases: List<FitnessCase<Double>>,
+            program: Program<Double, Outputs.Single<Double>>
+        ): Double {
             val fitness = cases.zip(outputs).map { (case, actual) ->
                 val expected = (case.target as Targets.Single).value
 
@@ -141,7 +154,11 @@ object FitnessFunctions {
     @JvmStatic
     val RMSE: SingleOutputFitnessFunction<Double> = object : SingleOutputFitnessFunction<Double>() {
 
-        override fun fitness(outputs: List<Outputs.Single<Double>>, cases: List<FitnessCase<Double>>): Double {
+        override fun fitness(
+            outputs: List<Outputs.Single<Double>>,
+            cases: List<FitnessCase<Double>>,
+            program: Program<Double, Outputs.Single<Double>>
+        ): Double {
             val fitness = cases.zip(outputs).map { (case, actual) ->
                 val expected = (case.target as Targets.Single).value
 
@@ -164,7 +181,11 @@ object FitnessFunctions {
      */
     private class ClassificationError(val mappingFunction: (Double) -> Double) : SingleOutputFitnessFunction<Double>() {
 
-        override fun fitness(outputs: List<Outputs.Single<Double>>, cases: List<FitnessCase<Double>>): Double {
+        override fun fitness(
+            outputs: List<Outputs.Single<Double>>,
+            cases: List<FitnessCase<Double>>,
+            program: Program<Double, Outputs.Single<Double>>
+        ): Double {
             return cases.zip(outputs).map { (case, output) ->
                 val expected = (case.target as Targets.Single).value
                 val actual = this.mappingFunction(output.value)
@@ -192,7 +213,11 @@ object FitnessFunctions {
      */
     private class ThresholdClassificationError(val threshold: Double) : SingleOutputFitnessFunction<Double>() {
 
-        override fun fitness(outputs: List<Outputs.Single<Double>>, cases: List<FitnessCase<Double>>): Double {
+        override fun fitness(
+            outputs: List<Outputs.Single<Double>>,
+            cases: List<FitnessCase<Double>>,
+            program: Program<Double, Outputs.Single<Double>>
+        ): Double {
             return cases.zip(outputs).filter { (case, output) ->
                 val expected = (case.target as Targets.Single).value
 

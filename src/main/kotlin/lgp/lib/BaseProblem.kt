@@ -10,6 +10,7 @@ import lgp.core.environment.operations.DefaultOperationLoader
 import lgp.core.evolution.*
 import lgp.core.evolution.fitness.*
 import lgp.core.evolution.model.EvolutionModel
+import lgp.core.evolution.model.EvolutionResult
 import lgp.core.evolution.model.Models
 import lgp.core.evolution.model.TestResult
 import lgp.core.evolution.operators.*
@@ -151,7 +152,7 @@ class BaseProblem(val params: BaseProblemParameters) : Problem<Double, Outputs.S
             )
     )
 
-    private var bestTrainingModel: EvolutionModel<Double, Outputs.Single<Double>>? = null
+    private var bestTrainingModel: Pair<EvolutionModel<Double, Outputs.Single<Double>>, EvolutionResult<Double, Outputs.Single<Double>>>? = null
 
     override fun initialiseEnvironment() {
         this.environment = Environment(
@@ -186,7 +187,7 @@ class BaseProblem(val params: BaseProblemParameters) : Problem<Double, Outputs.S
             // during testing.
             this.bestTrainingModel = trainingResult.evaluations.zip(trainingResult.models)
                     .sortedBy { (evaluation, _) -> evaluation.best.fitness }
-                    .map      { (_, model)      -> model }
+                    .map      { (eval, model)      -> model to eval }
                     .first()
 
             return trainingResult
@@ -206,13 +207,14 @@ class BaseProblem(val params: BaseProblemParameters) : Problem<Double, Outputs.S
             )
         }
 
-        val testResult = this.bestTrainingModel!!.test(dataset)
+        val testResult = this.bestTrainingModel!!.first.test(dataset)
 
         val testFitness = this.fitnessFunctionProvider()(
                 testResult.predicted,
                 dataset.inputs.zip(dataset.outputs).map { (features, target) ->
                     FitnessCase(features, target)
-                }
+                },
+                bestTrainingModel!!.second.best
         )
 
         return BaseProblemTestResult(testResult, testFitness)

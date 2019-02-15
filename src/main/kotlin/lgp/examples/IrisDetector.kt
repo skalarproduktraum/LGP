@@ -22,6 +22,7 @@ import lgp.core.evolution.training.DistributedTrainer
 import lgp.core.evolution.training.TrainingResult
 import lgp.core.modules.ModuleInformation
 import lgp.core.program.Outputs
+import lgp.core.program.Program
 import lgp.lib.*
 import net.imagej.DefaultDataset
 import net.imagej.ImageJService
@@ -345,7 +346,11 @@ class IrisDetectorProblem(val backend: AnalysisBackend = AnalysisBackend.ImageJO
     override val fitnessFunctionProvider = {
         val ff: SingleOutputFitnessFunction<Image> = object : SingleOutputFitnessFunction<Image>() {
 
-            override fun fitness(outputs: List<Outputs.Single<Image>>, cases: List<FitnessCase<Image>>): Double {
+            override fun fitness(
+                outputs: List<Outputs.Single<Image>>,
+                cases: List<FitnessCase<Image>>,
+                program: Program<Image, Outputs.Single<Image>>
+            ): Double {
                 val fitnessAbsoluteDifferences = {
                     when(backend) {
                         AnalysisBackend.ImageJOps -> {

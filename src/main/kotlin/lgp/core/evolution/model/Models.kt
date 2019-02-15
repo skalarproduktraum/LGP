@@ -457,7 +457,7 @@ object Models {
      */
     class IslandMigration<TProgram, TOutput : Output<TProgram>>(
             environment: Environment<TProgram, TOutput>,
-            private val options: IslandMigrationOptions
+            val options: IslandMigrationOptions
     ) : EvolutionModel<TProgram, TOutput>(environment) {
 
         private val fitnessEvaluator: FitnessEvaluator<TProgram, TOutput> = FitnessEvaluator()
