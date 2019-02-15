@@ -9,7 +9,7 @@ import org.bytedeco.javacpp.opencv_imgproc.*
 import org.reflections.Reflections
 import kotlin.random.Random
 
-class OpenCVCUDAOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class.java, val operationsFilter: List<String> = emptyList()) : OperationLoader<T> {
+class OpenCVCUDAOperationsLoader<T: Image>() : OperationLoader<T> {
 
     open class UnaryOpenCVCUDABaseOperation<T: Image>(val name: String, func: (Arguments<T>) -> T, override val parameters: List<Any> = emptyList()) : UnaryOperation<T>(func), ParameterMutateable<T> {
         override fun mutateParameters(): Operation<T> {
@@ -62,7 +62,7 @@ class OpenCVCUDAOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class
          * @param destination The destination register of the [Instruction] this [Operation] belongs to.
          */
         override fun toString(operands: List<RegisterIndex>, destination: RegisterIndex): String {
-            return "r[$destination] = $representation(r[${ operands[0] }], r[${ operands[1] }, ${parametersToCode(parameters)})"
+            return "r[$destination] = $representation(r[${ operands[0] }], r[${ operands[1] }], ${parametersToCode(parameters)})"
         }
 
         /**
@@ -116,6 +116,7 @@ class OpenCVCUDAOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class
             CV_8U, Scalar(parameters[0] as Double))
 
         opencv_cudaarithm.add(args.get(0).image as GpuMat, add, result)
+        add.release()
         Image.OpenCVGPUImage(result) as T
     }) {
         override fun mutateParameters(): Operation<T> {
@@ -129,6 +130,7 @@ class OpenCVCUDAOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class
             CV_8U, Scalar(parameters[0] as Double))
 
         opencv_cudaarithm.subtract(args.get(0).image as GpuMat, subtract, result)
+        subtract.release()
         Image.OpenCVGPUImage(result) as T
     })  {
         override fun mutateParameters(): Operation<T> {
@@ -142,6 +144,7 @@ class OpenCVCUDAOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class
             CV_8U, Scalar(parameters[0] as Double))
 
         opencv_cudaarithm.multiply(args.get(0).image as GpuMat, multiply, result)
+        multiply.release()
         Image.OpenCVGPUImage(result) as T
     }, parameters) {
         override fun mutateParameters(): Operation<T> {
@@ -155,6 +158,7 @@ class OpenCVCUDAOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class
             CV_8U, Scalar(parameters[0] as Double))
 
         opencv_cudaarithm.divide(args.get(0).image as GpuMat, divide, result)
+        divide.release()
         Image.OpenCVGPUImage(result) as T
     })  {
         override fun mutateParameters(): Operation<T> {
@@ -241,8 +245,8 @@ class OpenCVCUDAOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class
         Image.OpenCVGPUImage(result) as T
     }) {
         override fun mutateParameters(): Operation<T> {
-            val kernelSizeX = Random.nextInt(1, 5)
-            val kernelSizeY = Random.nextInt(1, 5)
+            val kernelSizeX = Random.nextInt(1, 9)
+            val kernelSizeY = Random.nextInt(1, 9)
             val anchorX = Random.nextInt(0, kernelSizeX)
             val anchorY = Random.nextInt(0, kernelSizeY)
 
@@ -287,7 +291,7 @@ class OpenCVCUDAOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class
         override fun mutateParameters(): Operation<T> {
             // 0 = rect, 1 = ellipse, 2 = cross
             val shape = Random.nextInt(0, 2)
-            val size = Size(Random.nextInt(1, 7), Random.nextInt(1, 7))
+            val size = Size(Random.nextInt(1, 11), Random.nextInt(1, 11))
             val kernel = getStructuringElement(shape, size)
 
             return OpenCVCUDAErode(listOf(kernel))
@@ -309,7 +313,7 @@ class OpenCVCUDAOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class
         override fun mutateParameters(): Operation<T> {
             // 0 = rect, 1 = ellipse, 2 = cross
             val shape = Random.nextInt(0, 2)
-            val size = Size(Random.nextInt(1, 7), Random.nextInt(1, 7))
+            val size = Size(Random.nextInt(1, 11), Random.nextInt(1, 11))
             val kernel = getStructuringElement(shape, size)
 
             return OpenCVCUDAGradient(listOf(kernel))
@@ -420,8 +424,15 @@ class OpenCVCUDAOperationsLoader<T: Image>(val typeFilter: Class<*> = Any::class
                     java.lang.Float::class.java -> "${it}f"
 
                     Int::class.java -> it.toString()
+                    java.lang.Integer::class.java -> it.toString()
                     Long::class.java -> it.toString()
+                    java.lang.Long::class.java -> it.toString()
                     Byte::class.java -> it.toString()
+                    java.lang.Byte::class.java -> it.toString()
+                    Short::class.java -> it.toString()
+                    java.lang.Short::class.java -> it.toString()
+
+                    Mat::class.java -> (it as Mat).toString()
 
                     else -> "(don't know how to code-print: ${it.javaClass.simpleName})"
                 }
