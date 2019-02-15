@@ -9,7 +9,7 @@ import org.bytedeco.javacpp.opencv_imgproc.*
 import org.reflections.Reflections
 import kotlin.random.Random
 
-class OpenCVCUDAOperationsLoader<T: Image>() : OperationLoader<T> {
+class OpenCVCUDAOperationsLoader<T: Image> : OperationLoader<T> {
 
     open class UnaryOpenCVCUDABaseOperation<T: Image>(val name: String, func: (Arguments<T>) -> T, override val parameters: List<Any> = emptyList()) : UnaryOperation<T>(func), ParameterMutateable<T> {
         override fun mutateParameters(): Operation<T> {
@@ -79,31 +79,31 @@ class OpenCVCUDAOperationsLoader<T: Image>() : OperationLoader<T> {
     }
 
 
-    class OpenCVCUDAAdd<T: Image>() : BinaryOpenCVCUDABaseOperation<T>("add", { args: Arguments<T> ->
+    class OpenCVCUDAAdd<T: Image> : BinaryOpenCVCUDABaseOperation<T>("add", { args: Arguments<T> ->
         val result = GpuMat()
         opencv_cudaarithm.add(args.get(0).image as GpuMat, args.get(1).image as GpuMat, result)
         Image.OpenCVGPUImage(result) as T
     })
 
-    class OpenCVCUDASubtract<T: Image>() : BinaryOpenCVCUDABaseOperation<T>("subtract", { args: Arguments<T> ->
+    class OpenCVCUDASubtract<T: Image> : BinaryOpenCVCUDABaseOperation<T>("subtract", { args: Arguments<T> ->
         val result = GpuMat()
         opencv_cudaarithm.subtract(args.get(0).image as GpuMat, args.get(1).image as GpuMat, result)
         Image.OpenCVGPUImage(result) as T
     })
 
-    class OpenCVCUDAMultiply<T: Image>() : BinaryOpenCVCUDABaseOperation<T>("multiply", { args: Arguments<T> ->
+    class OpenCVCUDAMultiply<T: Image> : BinaryOpenCVCUDABaseOperation<T>("multiply", { args: Arguments<T> ->
         val result = GpuMat()
         opencv_cudaarithm.multiply(args.get(0).image as GpuMat, args.get(1).image as GpuMat, result)
         Image.OpenCVGPUImage(result) as T
     })
 
-    class OpenCVCUDADivide<T: Image>() : BinaryOpenCVCUDABaseOperation<T>("divide", { args: Arguments<T> ->
+    class OpenCVCUDADivide<T: Image> : BinaryOpenCVCUDABaseOperation<T>("divide", { args: Arguments<T> ->
         val result = GpuMat()
         opencv_cudaarithm.divide(args.get(0).image as GpuMat, args.get(1).image as GpuMat, result)
         Image.OpenCVGPUImage(result) as T
     })
 
-    class OpenCVCUDAAbsDiff<T: Image>() : BinaryOpenCVCUDABaseOperation<T>("absdiff", { args: Arguments<T> ->
+    class OpenCVCUDAAbsDiff<T: Image> : BinaryOpenCVCUDABaseOperation<T>("absdiff", { args: Arguments<T> ->
         val result = GpuMat()
         opencv_cudaarithm.absdiff(args.get(0).image as GpuMat, args.get(1).image as GpuMat, result)
         Image.OpenCVGPUImage(result) as T
