@@ -1,10 +1,13 @@
 package lgp.core.environment.operations
 
+import lgp.core.program.registers.Argument
+import lgp.core.program.registers.Arguments
 import org.bytedeco.javacpp.*
 import org.bytedeco.javacpp.opencv_core.*
 import org.bytedeco.javacpp.opencv_highgui.*
 import org.bytedeco.javacpp.opencv_imgproc.*
 import org.junit.Test
+import kotlin.random.Random
 
 /**
  * <Description>
@@ -22,7 +25,10 @@ class OpenCVCUDAOperationsLoaderTest {
             circle(
                 mat, Point(rng.uniform(0, mat.rows()), rng.uniform(0, mat.cols())),
                 rng.uniform(20, 50),
-                Scalar(rng.uniform(0.0, 255.0))
+                Scalar(rng.uniform(0.0, 255.0)),
+                rng.uniform(-20, 20),
+                listOf(-1, 4, 8, 16).random(),
+                0
             )
         }
 
@@ -32,7 +38,7 @@ class OpenCVCUDAOperationsLoaderTest {
     @Test
     fun testCUDA() {
         val showWindows = System.getProperty("ShowCUDAWindows", "true").toBoolean()
-        val rng = opencv_core.RNG()
+        val rng = opencv_core.RNG(Random.nextInt())
         var frame = opencv_core.Mat(480, 640, CV_8U)
         randomCircles(frame, rng, 10)
 
@@ -95,5 +101,36 @@ class OpenCVCUDAOperationsLoaderTest {
             }
         }
 
+    }
+
+    @Test
+    fun testDeleteSmallComponents() {
+        val deleteSmallComponents = OpenCVCUDAOperationsLoader.OpenCVCUDADeleteSmallComponents<Image.OpenCVGPUImage>(listOf(80))
+        val inputLocal = Mat.zeros(480, 640, CV_8U).asMat()
+        val input = GpuMat()
+        randomCircles(inputLocal, RNG(Random.nextInt()), 20)
+        input.upload(inputLocal)
+
+        val arguments = Arguments(listOf(Argument(Image.OpenCVGPUImage(input))))
+
+        val result = deleteSmallComponents.execute(arguments)
+        val resultLocal = Mat()
+
+        result.image.download(resultLocal)
+        var running = true
+
+        namedWindow("input", WINDOW_NORMAL)
+        namedWindow("labels", WINDOW_NORMAL)
+        namedWindow("result", WINDOW_NORMAL)
+
+        while(running) {
+            imshow("input", inputLocal)
+            imshow("result", resultLocal)
+
+            val key = waitKey(30)
+            if (key == 27) {
+                running = false
+            }
+        }
     }
 }
